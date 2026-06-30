@@ -21,5 +21,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
-      - run: npm publish --provenance --access public
+      - name: Check token
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "ERROR: NPM_TOKEN secret is empty or not set"
+            exit 1
+          fi
+          echo "Token is set (${#NPM_TOKEN} chars)"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish
+        run: npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}" && npm publish --provenance --access public
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

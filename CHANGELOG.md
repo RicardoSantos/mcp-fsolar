@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.8] — 2026-06-30
+
+### Added
+- `computeHealth` now returns `dischargeDelta: number | null` per battery — median cell delta from discharge-only snapshots (delta < 30 mV), excludes top-of-charge BMS balancing noise
+- `computeAutonomy` now returns `estimatedHoursToFull: number | null` at fleet level and per battery — hours until 100% SOC at current charge rate (null when not charging)
+- `AutonomyPerBattery.estimatedHoursToFull` TypeScript type
+
 ## [1.0.7] — 2026-06-30
 
 ### Added

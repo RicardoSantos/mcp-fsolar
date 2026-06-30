@@ -588,6 +588,20 @@ function computeHealth(batteries, snapshots) {
       ? Math.round(cRates.reduce((s, v) => s + v, 0) / cRates.length * 100) / 100
       : null;
 
+    // Discharge-phase delta — median of snapshots where battery was discharging and
+    // delta < 30 mV. LiFePO4 cells are uniform at rest/discharge; top-of-charge
+    // spreads are excluded because the BMS is still balancing and the inflated delta
+    // doesn't reflect true cell health. Requires ≥ 3 qualifying snapshots.
+    const dischargeDeltaSamples = snapshots
+      .map((s) => s.batteries.find((b) => b.sn === bat.sn))
+      .filter((b) => b && (b.power ?? 0) < 0 && b.cellDelta != null && b.cellDelta < 30)
+      .map((b) => b.cellDelta);
+    let dischargeDelta = null;
+    if (dischargeDeltaSamples.length >= 3) {
+      const sorted = [...dischargeDeltaSamples].sort((a, b) => a - b);
+      dischargeDelta = sorted[Math.floor(sorted.length / 2)];
+    }
+
     result[bat.sn] = {
       alias:           bat.alias,
       cellDeltaStatus,
@@ -598,6 +612,7 @@ function computeHealth(batteries, snapshots) {
       soh:             bat.soh ?? null,
       outliers,
       avgCRate,
+      dischargeDelta,
     };
   }
 
@@ -625,15 +640,25 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   }
   dischargeRateKw = Math.max(0.2, Math.min(24, dischargeRateKw));
 
-  // ── Fleet hours until minSoc ──────────────────────────────────────────────
-  const totalCapacityKwh = packCapacityKwh
+  // ── Capacity derivation ───────────────────────────────────────────────────
+  const totalCapacityKwh  = packCapacityKwh
     ?? batteries.reduce((s, b) => s + (b.ratedEnergyKwh ?? (b.soc > 0 ? b.remainingKwh / (b.soc / 100) : 0)), 0);
+  const perBatCapacityKwh = packCapacityKwh != null ? packCapacityKwh / batteries.length : null;
+
+  // ── Fleet hours until minSoc (discharge) ─────────────────────────────────
   const fleetMinKwh    = totalCapacityKwh * (minSocPct / 100);
   const fleetUsableKwh = Math.max(0, totalRemainingKwh - fleetMinKwh);
   const estimatedHours = Math.round(fleetUsableKwh / dischargeRateKw * 10) / 10;
 
-  // ── Per-battery hours until minSoc ────────────────────────────────────────
-  const perBatCapacityKwh = packCapacityKwh != null ? packCapacityKwh / batteries.length : null;
+  // ── Fleet hours until full (charge) ──────────────────────────────────────
+  let estimatedHoursToFull = null;
+  const avgSoc = batteries.reduce((s, b) => s + b.soc, 0) / batteries.length;
+  if (totalPowerW > 50 && avgSoc < 100 && totalCapacityKwh > 0) {
+    const remainingToFull = totalCapacityKwh * (1 - avgSoc / 100);
+    estimatedHoursToFull = Math.round(remainingToFull / (totalPowerW / 1000) * 10) / 10;
+  }
+
+  // ── Per-battery hours until minSoc and until full ─────────────────────────
   const perBattery = batteries.map((bat) => {
     const batCapacityKwh = bat.ratedEnergyKwh
       ?? perBatCapacityKwh
@@ -644,11 +669,20 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
     const batDischargeKw = (bat.power ?? 0) < -50
       ? Math.abs(bat.power) / 1000
       : dischargeRateKw / batteries.length;
+    const batEstimatedHours = Math.round(batUsableKwh / batDischargeKw * 10) / 10;
+
+    let batEstimatedHoursToFull = null;
+    if ((bat.power ?? 0) > 50 && bat.soc < 100 && batCapacityKwh > 0) {
+      const toFull = batCapacityKwh * (1 - bat.soc / 100);
+      batEstimatedHoursToFull = Math.round(toFull / (bat.power / 1000) * 10) / 10;
+    }
+
     return {
-      sn:             bat.sn,
-      alias:          bat.alias,
-      remainingKwh:   Math.round(bat.remainingKwh * 10) / 10,
-      estimatedHours: Math.round(batUsableKwh / batDischargeKw * 10) / 10,
+      sn:                    bat.sn,
+      alias:                 bat.alias,
+      remainingKwh:          Math.round(bat.remainingKwh * 10) / 10,
+      estimatedHours:        batEstimatedHours,
+      estimatedHoursToFull:  batEstimatedHoursToFull,
     };
   });
 
@@ -665,6 +699,7 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
     totalRemainingKwh:    Math.round(totalRemainingKwh * 10) / 10,
     dischargeRateKw:      Math.round(dischargeRateKw * 10) / 10,
     estimatedHours,
+    estimatedHoursToFull,
     estimatedSocAtSunrise,
     perBattery,
   };

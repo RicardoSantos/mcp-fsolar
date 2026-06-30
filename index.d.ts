@@ -144,6 +144,10 @@ export interface BatteryHealth {
   alias:           string;
   cellDeltaStatus: "ok" | "warn" | "crit" | null;
   cellDelta:       number | null;
+  /** Median cell delta from discharge-only snapshots (delta < 30 mV).
+   *  Excludes top-of-charge readings where the BMS is still balancing.
+   *  null if fewer than 3 qualifying snapshots. */
+  dischargeDelta:  number | null;
   tempStatus:      "ok" | "warn" | "crit" | null;
   tempMax:         number | null;
   sohStatus:       "ok" | "warn" | null;
@@ -153,11 +157,13 @@ export interface BatteryHealth {
 }
 
 export interface AutonomyPerBattery {
-  sn:             string;
-  alias:          string;
-  remainingKwh:   number;
+  sn:                   string;
+  alias:                string;
+  remainingKwh:         number;
   /** Hours until this battery reaches minSocPct at current discharge rate. */
-  estimatedHours: number;
+  estimatedHours:       number;
+  /** Hours until this battery reaches 100% at current charge rate. null if not charging. */
+  estimatedHoursToFull: number | null;
 }
 
 export interface AutonomyResult {
@@ -165,9 +171,11 @@ export interface AutonomyResult {
   dischargeRateKw:      number;
   /** Hours until fleet reaches minSocPct at current discharge rate. */
   estimatedHours:       number;
+  /** Hours until fleet reaches 100% at current charge rate. null if not charging. */
+  estimatedHoursToFull: number | null;
   /** Estimated SOC (%) at sunriseAt. null if sunriseAt or packCapacityKwh not provided. */
   estimatedSocAtSunrise: number | null;
-  /** Per-battery breakdown: hours until each pack reaches minSocPct. */
+  /** Per-battery breakdown. */
   perBattery:           AutonomyPerBattery[];
 }
 

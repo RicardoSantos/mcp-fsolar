@@ -268,7 +268,6 @@ class FelicityClient {
    * @param {Function} [opts._fetch]  - Internal: override HTTP transport (for testing).
    */
   constructor({ user, pass, cache, ttl = 30, _fetch = felicityRequest }) {
-    if (!user || !pass) throw new Error("FelicityClient: user and pass are required");
     this._user        = user;
     this._pass        = pass;
     this._cache       = cache ?? new MemoryCacheAdapter();
@@ -281,6 +280,7 @@ class FelicityClient {
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   async _ensureToken() {
+    if (!this._user || !this._pass) throw new Error("FelicityClient: user and pass are required");
     if (this._token && Date.now() < this._tokenExpiry) return this._token;
     const encPass = crypto
       .publicEncrypt({ key: RSA_PUB, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(this._pass))

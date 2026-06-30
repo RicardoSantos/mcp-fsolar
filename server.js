@@ -19,7 +19,7 @@ const os   = require("os");
 const { McpServer }          = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
 const { z }                  = require("zod");
-const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, startPoller, readState } = require("./index.js");
+const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, hookStore, startPoller, readState } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -202,6 +202,36 @@ const httpServer = http.createServer(async (req, res) => {
       if (!result.battery) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "not found" })); return; }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+      return;
+    }
+
+    // ── Webhook subscriptions ───────────────────────────────────────────────
+    if (req.method === "GET" && url.pathname === "/hooks") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(hookStore.list()));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/hooks") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { url: hookUrl, events, params } = JSON.parse(body);
+          if (!hookUrl) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
+          const hook = hookStore.add({ url: hookUrl, events, params });
+          res.writeHead(201, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(hook));
+        } catch { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "invalid JSON" })); }
+      });
+      return;
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/hooks/")) {
+      const id = url.pathname.slice("/hooks/".length);
+      const ok = hookStore.remove(id);
+      res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok }));
       return;
     }
 

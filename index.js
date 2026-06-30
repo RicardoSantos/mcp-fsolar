@@ -198,6 +198,109 @@ class DailySnapshotStore extends SnapshotStore {
 const snapshotStore      = new BatterySnapshotStore();
 const dailySnapshotStore = new DailySnapshotStore();
 
+// ── HookStore ─────────────────────────────────────────────────────────────────
+
+const HOOK_COOLDOWNS_H = {
+  cell_delta_warn: 24,
+  cell_delta_crit: 4,
+  temp_warn:       4,
+  temp_crit:       1,
+  outlier:         24,
+  soh_warn:        168,
+  low_soc:         4,
+};
+
+class HookStore {
+  get _file() {
+    return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-hooks.json");
+  }
+
+  _load() {
+    try { return JSON.parse(fs.readFileSync(this._file, "utf8")).hooks ?? []; }
+    catch { return []; }
+  }
+
+  _save(hooks) {
+    try { fs.writeFileSync(this._file, JSON.stringify({ hooks }, null, 2)); }
+    catch (e) { console.error("[HookStore] write failed:", e.message); }
+  }
+
+  list() { return this._load(); }
+
+  add({ url, events, params = {} }) {
+    const hooks = this._load();
+    const hook = {
+      id:        Math.random().toString(36).slice(2, 10),
+      url,
+      events:    events ?? Object.keys(HOOK_COOLDOWNS_H),
+      params,
+      createdAt: new Date().toISOString(),
+      lastFired: {},
+    };
+    hooks.push(hook);
+    this._save(hooks);
+    return hook;
+  }
+
+  remove(id) {
+    const hooks = this._load();
+    const next  = hooks.filter((h) => h.id !== id);
+    if (next.length === hooks.length) return false;
+    this._save(next);
+    return true;
+  }
+
+  async fire(batteries, health) {
+    const hooks = this._load();
+    if (!hooks.length) return;
+    let dirty = false;
+
+    for (const hook of hooks) {
+      for (const bat of batteries) {
+        const h = health[bat.sn] ?? {};
+
+        const checks = [
+          { event: "cell_delta_crit", active: h.cellDeltaStatus === "crit",   value: bat.cellDelta,  threshold: HEALTH_CELL_DELTA_CRIT },
+          { event: "cell_delta_warn", active: h.cellDeltaStatus === "warn",   value: bat.cellDelta,  threshold: HEALTH_CELL_DELTA_WARN },
+          { event: "temp_crit",       active: h.tempStatus      === "crit",   value: bat.tempMax,    threshold: HEALTH_TEMP_CRIT },
+          { event: "temp_warn",       active: h.tempStatus      === "warn",   value: bat.tempMax,    threshold: HEALTH_TEMP_WARN },
+          { event: "soh_warn",        active: h.sohStatus       === "warn",   value: bat.soh,        threshold: HEALTH_SOH_WARN },
+          { event: "outlier",         active: h.outliers?.length > 0,         value: h.outliers,     threshold: null },
+          { event: "low_soc",         active: bat.soc <= (hook.params.lowSocThreshold ?? 25), value: bat.soc, threshold: hook.params.lowSocThreshold ?? 25 },
+        ];
+
+        for (const { event, active, value, threshold } of checks) {
+          if (!active || !hook.events.includes(event)) continue;
+
+          const key       = `${event}:${bat.sn}`;
+          const lastFired = hook.lastFired[key] ? new Date(hook.lastFired[key]).getTime() : 0;
+          const cooldownMs = (HOOK_COOLDOWNS_H[event] ?? 4) * 3_600_000;
+          if (Date.now() - lastFired < cooldownMs) continue;
+
+          const payload = { event, battery: bat.alias, sn: bat.sn, value, threshold, ts: new Date().toISOString() };
+          try {
+            await fetch(hook.url, {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body:    JSON.stringify(payload),
+              signal:  AbortSignal.timeout(5000),
+            });
+            hook.lastFired[key] = payload.ts;
+            dirty = true;
+            console.log(`[hooks] fired ${event} → ${bat.alias} → ${hook.url}`);
+          } catch (e) {
+            console.error(`[hooks] POST ${hook.url} failed:`, e.message);
+          }
+        }
+      }
+    }
+
+    if (dirty) this._save(hooks);
+  }
+}
+
+const hookStore = new HookStore();
+
 // ── Materialized state ────────────────────────────────────────────────────────
 
 function _stateFile() {
@@ -248,6 +351,9 @@ function startPoller(client) {
     try {
       const { batteries } = await client.getBatteries();
       _writeState(batteries);
+      const snapshots = snapshotStore.getSnapshots();
+      const health    = computeHealth(batteries, snapshots);
+      await hookStore.fire(batteries, health);
     } catch (e) {
       console.error("[fsolar] poller error:", e.message);
     }
@@ -544,6 +650,7 @@ module.exports = {
   DailySnapshotStore,
   snapshotStore,
   dailySnapshotStore,
+  hookStore,
   startPoller,
   readState,
   computeHealth,

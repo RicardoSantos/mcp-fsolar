@@ -204,5 +204,31 @@ export declare function readState(): MaterializedState | null;
  *  Returns a stop function. */
 export declare function startPoller(client: FelicityClient): () => void;
 
+export interface HookPayload {
+  event:     string;
+  battery:   string;
+  sn:        string;
+  value:     number | null;
+  threshold: number | null;
+  ts:        string;
+}
+
+export interface HookSubscription {
+  id:        string;
+  url:       string;
+  /** If empty array, subscribes to all events. */
+  events:    string[];
+  params:    Record<string, unknown>;
+  createdAt: string;
+}
+
+export declare class HookStore {
+  add(opts: { url: string; events?: string[]; params?: Record<string, unknown> }): HookSubscription;
+  remove(id: string): boolean;
+  list(): HookSubscription[];
+  fire(batteries: Battery[], health: Record<string, BatteryHealth>): Promise<void>;
+}
+
+export declare const hookStore:          HookStore;
 export declare const snapshotStore:      BatterySnapshotStore;
 export declare const dailySnapshotStore: DailySnapshotStore;

@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.6] — 2026-06-30
+
+### Added
+- `HookStore` — webhook notification system persisted to `battery-hooks.json`
+  - `add({ url, events, params })`, `remove(id)`, `list()`
+  - `fire(batteries, health)` — called by poller after each tick, respects per-event cooldowns
+  - Events: `cell_delta_crit`, `cell_delta_warn`, `temp_crit`, `temp_warn`, `outlier`, `soh_warn`, `low_soc`
+- `hookStore` singleton exported from library
+- REST endpoints in standalone server: `GET /hooks`, `POST /hooks`, `DELETE /hooks/:id`
+- `HookStore`, `HookSubscription`, `HookPayload` TypeScript types
+- `ALGORITHMS.md` — detailed documentation of all formulas, thresholds, assumptions, and webhook rules
+
 ## [1.0.5] — 2026-06-30
 
 ### Added

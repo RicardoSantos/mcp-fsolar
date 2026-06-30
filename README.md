@@ -47,6 +47,10 @@ node server.js
 | `FELICITY_SNAPSHOT_DAYS` | No | `3` | Days of intra-day snapshots to retain (min 1, max 30) |
 | `FELICITY_DAILY_DAYS` | No | `90` | Days of daily snapshots to retain (min 7, max 365) |
 
+## Algorithms & metrics
+
+Detailed documentation of every derived metric (formulas, thresholds, assumptions, webhook events) is in [ALGORITHMS.md](./ALGORITHMS.md).
+
 ## Wire into Claude Code
 
 After starting the server, register it:

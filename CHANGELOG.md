@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.10] — 2026-06-30
+
+### Fixed
+- `server.js`: `process.on("uncaughtException")` logs ISO timestamp + full stack and exits 1 — crash always leaves a record in Docker logs
+- `server.js`: `process.on("unhandledRejection")` logs ISO timestamp without killing the process
+- `server.js`: `readBody()` enforces 64 KB body limit on all POST requests; returns HTTP 413 on overflow
+- `server.js`: `PORT` and `POLL_MS` `parseInt` given explicit radix 10
+
 ## [1.0.9] — 2026-06-30
 
 ### Changed

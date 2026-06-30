@@ -298,7 +298,7 @@ class FelicityClient {
   async _fetchAll() {
     const token   = await this._ensureToken();
     const devResp = await this._fetch("POST", "/device/list_device_all_type", { pageNum: 1, pageSize: 100 }, token);
-    if (devResp.code !== 200) throw new Error(`Device list failed: ${devResp.message ?? devResp.code}`);
+    if (devResp.code !== 200) throw new Error(`Device list failed: ${devResp.message ?? devResp.code} — response: ${JSON.stringify(devResp).slice(0, 200)}`);
 
     const allDevices = devResp.data?.dataList ?? [];
     if (allDevices.length >= 100)

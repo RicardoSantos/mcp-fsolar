@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.9] — 2026-06-30
+
+### Changed
+- `computeHealth`: pre-index snapshot entries by SN before battery loop — eliminates O(M) `find()` per snapshot per battery; single pass build of `Map<sn, entries[]>`
+- `computeHealth`: outlier detection no longer gated on live `chargingState === "discharging"` — snapshot-level power filter (`power < 0`) is sufficient; standby ticks no longer erase a previously flagged weak cell
+- `startPoller`: snapshots loaded once per tick and threaded through `_writeState`, `computeHealth`, and `hookStore.fire()` — was reading disk 3× per tick
+- `startPoller`: `computeHealth` computed once per tick and passed to both `_writeState` and `hookStore.fire()` — was computed twice
+- `startPoller`: mutex flag prevents overlapping ticks if Felicity API is slow (10s timeout vs. short poll intervals)
+- `_writeState`, `SnapshotStore._save`, `HookStore._save`: atomic writes via `.tmp` + `fs.renameSync` — prevents corrupt JSON on process crash mid-write
+- `HookStore.add`: webhook IDs now use `crypto.randomBytes(4).toString("hex")` instead of `Math.random()`
+- `resolveSnapshotConfig`: uses `clamp()` helper with explicit radix 10 in `parseInt`
+- `nullableInt`: added explicit radix 10 to `parseInt`
+- `computeAutonomy`: renamed reducer variables to eliminate `b`/`sn` shadowing; `clamp()` used for `dischargeRateKw` and `estimatedSocAtSunrise`
+- `TOKEN_TTL_MS` named constant replaces inline `72 * 60 * 60 * 1000`
+
 ## [1.0.8] — 2026-06-30
 
 ### Added

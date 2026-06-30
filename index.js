@@ -20,8 +20,9 @@ const RSA_PUB =
   "bNwIDAQAB\n" +
   "-----END PUBLIC KEY-----";
 
-const API_HOST          = "shine-api.felicitysolar.com";
+const API_HOST           = "shine-api.felicitysolar.com";
 const REQUEST_TIMEOUT_MS = 10_000;
+const TOKEN_TTL_MS       = 72 * 60 * 60 * 1000;
 
 // ── Low-level HTTP ────────────────────────────────────────────────────────────
 
@@ -56,8 +57,9 @@ function felicityRequest(method, urlPath, body, token) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function nullableInt(v)   { return v != null ? parseInt(v)   : null; }
-function nullableFloat(v) { return v != null ? parseFloat(v) : null; }
+function nullableInt(v)   { return v != null ? parseInt(v, 10) : null; }
+function nullableFloat(v) { return v != null ? parseFloat(v)  : null; }
+function clamp(min, val, max) { return Math.max(min, Math.min(max, val)); }
 
 function pickSnapshotFields(b) {
   return {
@@ -100,8 +102,11 @@ class SnapshotStore {
   }
 
   _save(snapshots) {
-    try { fs.writeFileSync(this._file, JSON.stringify({ snapshots }, null, 2)); }
-    catch (e) { console.error(`[SnapshotStore:${this._fileName}] write failed: ${e.message}`); }
+    try {
+      const tmp = this._file + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ snapshots }, null, 2));
+      fs.renameSync(tmp, this._file);
+    } catch (e) { console.error(`[SnapshotStore:${this._fileName}] write failed: ${e.message}`); }
   }
 
   maybeAdd(batteries) {
@@ -133,9 +138,9 @@ const DAILY_DAYS_MAX        = 365;
 
 function resolveSnapshotConfig() {
   const enabled = (process.env.FELICITY_SNAPSHOT_ENABLED ?? "true") === "true";
-  const ms      = Math.min(SNAPSHOT_MS_MAX,  Math.max(SNAPSHOT_MS_MIN,  parseInt(process.env.FELICITY_SNAPSHOT_MS   ?? String(SNAPSHOT_MS_DEFAULT))));
-  const days    = Math.min(SNAPSHOT_DAYS_MAX, Math.max(SNAPSHOT_DAYS_MIN, parseInt(process.env.FELICITY_SNAPSHOT_DAYS ?? String(SNAPSHOT_DAYS_DEFAULT))));
-  const ddays   = Math.min(DAILY_DAYS_MAX,    Math.max(DAILY_DAYS_MIN,    parseInt(process.env.FELICITY_DAILY_DAYS    ?? String(DAILY_DAYS_DEFAULT))));
+  const ms    = clamp(SNAPSHOT_MS_MIN,   parseInt(process.env.FELICITY_SNAPSHOT_MS   ?? String(SNAPSHOT_MS_DEFAULT),   10), SNAPSHOT_MS_MAX);
+  const days  = clamp(SNAPSHOT_DAYS_MIN, parseInt(process.env.FELICITY_SNAPSHOT_DAYS ?? String(SNAPSHOT_DAYS_DEFAULT), 10), SNAPSHOT_DAYS_MAX);
+  const ddays = clamp(DAILY_DAYS_MIN,    parseInt(process.env.FELICITY_DAILY_DAYS    ?? String(DAILY_DAYS_DEFAULT),    10), DAILY_DAYS_MAX);
   const maxIntra = Math.ceil((days * 24 * 60 * 60 * 1000) / ms);
   return { enabled, ms, maxIntra, ddays };
 }
@@ -175,11 +180,11 @@ class BatterySnapshotStore extends SnapshotStore {
     return this._computeTrend(sn, this._load());
   }
 
-  getAllTrends(batteries) {
-    const snapshots = this._load();
+  getAllTrends(batteries, snapshots) {
+    const snaps = snapshots ?? this._load();
     const result = {};
     for (const bat of batteries) {
-      const trend = this._computeTrend(bat.sn, snapshots);
+      const trend = this._computeTrend(bat.sn, snaps);
       if (trend) result[bat.sn] = trend;
     }
     return result;
@@ -221,8 +226,11 @@ class HookStore {
   }
 
   _save(hooks) {
-    try { fs.writeFileSync(this._file, JSON.stringify({ hooks }, null, 2)); }
-    catch (e) { console.error("[HookStore] write failed:", e.message); }
+    try {
+      const tmp = this._file + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ hooks }, null, 2));
+      fs.renameSync(tmp, this._file);
+    } catch (e) { console.error("[HookStore] write failed:", e.message); }
   }
 
   list() { return this._load(); }
@@ -230,7 +238,7 @@ class HookStore {
   add({ url, events, params = {} }) {
     const hooks = this._load();
     const hook = {
-      id:        Math.random().toString(36).slice(2, 10),
+      id:        crypto.randomBytes(4).toString("hex"),
       url,
       events:    events ?? Object.keys(HOOK_COOLDOWNS_H),
       params,
@@ -307,11 +315,9 @@ function _stateFile() {
   return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-state.json");
 }
 
-function _writeState(batteries) {
+function _writeState(batteries, snapshots, health) {
   try {
-    const snapshots   = snapshotStore.getSnapshots();
-    const trends      = snapshotStore.getAllTrends(batteries);
-    const health      = computeHealth(batteries, snapshots);
+    const trends      = snapshotStore.getAllTrends(batteries, snapshots);
     const autonomy    = computeAutonomy(batteries, snapshots);
     const totalPowerW = batteries.reduce((s, b) => s + b.power, 0);
     const state = {
@@ -328,7 +334,9 @@ function _writeState(batteries) {
         maxTempC:       batteries.reduce((m, b) => b.tempMax > m ? b.tempMax : m, -Infinity),
       },
     };
-    fs.writeFileSync(_stateFile(), JSON.stringify(state, null, 2));
+    const tmp = _stateFile() + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.renameSync(tmp, _stateFile());
   } catch (e) {
     console.error("[fsolar] state write failed:", e.message);
   }
@@ -347,15 +355,20 @@ function startPoller(client) {
     console.log("[fsolar] snapshot poller disabled (FELICITY_SNAPSHOT_ENABLED=false)");
     return () => {};
   }
+  let _tickRunning = false;
   async function tick() {
+    if (_tickRunning) return;
+    _tickRunning = true;
     try {
       const { batteries } = await client.getBatteries();
-      _writeState(batteries);
-      const snapshots = snapshotStore.getSnapshots();
-      const health    = computeHealth(batteries, snapshots);
+      const snapshots     = snapshotStore.getSnapshots();
+      const health        = computeHealth(batteries, snapshots);
+      _writeState(batteries, snapshots, health);
       await hookStore.fire(batteries, health);
     } catch (e) {
       console.error("[fsolar] poller error:", e.message);
+    } finally {
+      _tickRunning = false;
     }
   }
   tick();
@@ -479,7 +492,7 @@ class FelicityClient {
     if (resp.code !== 200) throw new Error(`Felicity login failed: ${resp.message ?? resp.code}`);
     const raw = resp.data?.token ?? resp.data?.data?.token ?? resp.data;
     this._token       = String(raw).replace(/^Bearer_/, "");
-    this._tokenExpiry = Date.now() + 72 * 60 * 60 * 1000;
+    this._tokenExpiry = Date.now() + TOKEN_TTL_MS;
     return this._token;
   }
 
@@ -544,7 +557,16 @@ const HEALTH_OUTLIER_MV      = 35;   // mV below pack avg, persistent across las
 const HEALTH_SOH_WARN        = 90;   // %
 
 function computeHealth(batteries, snapshots) {
-  const lastN  = snapshots.slice(-3);
+  // Pre-index snapshot entries by SN — O(snapshots × batteries_per_snap) once,
+  // then O(1) per battery instead of O(M) find() inside each loop.
+  const snapsBySn = new Map();
+  for (const snap of snapshots) {
+    for (const b of snap.batteries) {
+      if (!snapsBySn.has(b.sn)) snapsBySn.set(b.sn, []);
+      snapsBySn.get(b.sn).push(b);
+    }
+  }
+
   const result = {};
 
   for (const bat of batteries) {
@@ -560,15 +582,18 @@ function computeHealth(batteries, snapshots) {
 
     const sohStatus = bat.soh == null ? null : bat.soh < HEALTH_SOH_WARN ? "warn" : "ok";
 
-    // Persistent cell outliers — only meaningful while discharging
+    const batSnaps = snapsBySn.get(bat.sn) ?? [];
+
+    // Persistent cell outliers — gate on snapshot discharge history, not live state,
+    // so standby ticks don't erase a previously detected weak cell.
     let outliers = [];
-    if (bat.chargingState === "discharging" && lastN.length >= 3 && bat.cellVoltages?.length > 0) {
+    const batLastN = batSnaps.slice(-3);
+    if (batLastN.length >= 3 && bat.cellVoltages?.length > 0) {
       const avg = bat.cellVoltages.reduce((s, v) => s + v, 0) / bat.cellVoltages.length;
       outliers = bat.cellVoltages
         .map((v, i) => ({ cell: i + 1, dev: v - avg }))
         .filter((c) => c.dev < -HEALTH_OUTLIER_MV)
-        .filter((o) => lastN.every((snap) => {
-          const b = snap.batteries.find((b) => b.sn === bat.sn);
+        .filter((o) => batLastN.every((b) => {
           if (!b?.voltages?.length || (b.power ?? 0) >= 0) return false;
           const a = b.voltages.reduce((s, v) => s + v, 0) / b.voltages.length;
           return (b.voltages[o.cell - 1] ?? a) - a < -HEALTH_OUTLIER_MV;
@@ -577,10 +602,9 @@ function computeHealth(batteries, snapshots) {
     }
 
     // Average C-rate from recent snapshots
-    const recentSnaps = snapshots.slice(-6);
+    const batRecentSnaps = batSnaps.slice(-6);
     const ratedW = (bat.capacityAh ?? 0) * (bat.voltage ?? 48);
-    const cRates = recentSnaps.flatMap((s) => {
-      const b = s.batteries.find((b) => b.sn === bat.sn);
+    const cRates = batRecentSnaps.flatMap((b) => {
       if (!b || Math.abs(b.power ?? 0) < 50 || ratedW <= 0) return [];
       return [Math.abs(b.power) / ratedW];
     });
@@ -592,9 +616,8 @@ function computeHealth(batteries, snapshots) {
     // delta < 30 mV. LiFePO4 cells are uniform at rest/discharge; top-of-charge
     // spreads are excluded because the BMS is still balancing and the inflated delta
     // doesn't reflect true cell health. Requires ≥ 3 qualifying snapshots.
-    const dischargeDeltaSamples = snapshots
-      .map((s) => s.batteries.find((b) => b.sn === bat.sn))
-      .filter((b) => b && (b.power ?? 0) < 0 && b.cellDelta != null && b.cellDelta < 30)
+    const dischargeDeltaSamples = batSnaps
+      .filter((b) => (b.power ?? 0) < 0 && b.cellDelta != null && b.cellDelta < 30)
       .map((b) => b.cellDelta);
     let dischargeDelta = null;
     if (dischargeDeltaSamples.length >= 3) {
@@ -634,11 +657,11 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   } else {
     const nightSnaps = snapshots.filter((s) => s.batteries.some((b) => (b.power ?? 0) < -100));
     const avgW = nightSnaps.length
-      ? nightSnaps.reduce((s, sn) => s + sn.batteries.reduce((a, b) => a + Math.abs(Math.min(0, b.power ?? 0)), 0), 0) / nightSnaps.length
+      ? nightSnaps.reduce((acc, snap) => acc + snap.batteries.reduce((sum, entry) => sum + Math.abs(Math.min(0, entry.power ?? 0)), 0), 0) / nightSnaps.length
       : 0;
     dischargeRateKw = avgW > 100 ? avgW / 1000 : defaultDischargeKw;
   }
-  dischargeRateKw = Math.max(0.2, Math.min(24, dischargeRateKw));
+  dischargeRateKw = clamp(0.2, dischargeRateKw, 24);
 
   // ── Capacity derivation ───────────────────────────────────────────────────
   const totalCapacityKwh  = packCapacityKwh
@@ -692,7 +715,7 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
     const hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
     const minKwh = packCapacityKwh * (minSocPct / 100);
     const remaining = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
-    estimatedSocAtSunrise = Math.max(minSocPct, Math.min(100, Math.round((remaining / packCapacityKwh) * 100)));
+    estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / packCapacityKwh) * 100), 100);
   }
 
   return {

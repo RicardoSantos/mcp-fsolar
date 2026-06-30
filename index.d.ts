@@ -152,12 +152,23 @@ export interface BatteryHealth {
   avgCRate:        number | null;
 }
 
+export interface AutonomyPerBattery {
+  sn:             string;
+  alias:          string;
+  remainingKwh:   number;
+  /** Hours until this battery reaches minSocPct at current discharge rate. */
+  estimatedHours: number;
+}
+
 export interface AutonomyResult {
   totalRemainingKwh:    number;
   dischargeRateKw:      number;
+  /** Hours until fleet reaches minSocPct at current discharge rate. */
   estimatedHours:       number;
   /** Estimated SOC (%) at sunriseAt. null if sunriseAt or packCapacityKwh not provided. */
   estimatedSocAtSunrise: number | null;
+  /** Per-battery breakdown: hours until each pack reaches minSocPct. */
+  perBattery:           AutonomyPerBattery[];
 }
 
 export interface AutonomyOptions {

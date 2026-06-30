@@ -84,10 +84,22 @@ If no night snapshots exist, falls back to `defaultDischargeKw` (default **1.5 k
 
 Clamped to `[0.2, 24] kW`.
 
-### Estimated hours
+### Estimated hours (fleet)
 
 ```
-estimatedHours = totalRemainingKwh / dischargeRateKw
+totalCapacityKwh = packCapacityKwh  (or derived: sum of ratedEnergyKwh per battery, or remainingKwh/(soc/100))
+fleetUsableKwh   = max(0, totalRemainingKwh − totalCapacityKwh × minSocPct / 100)
+estimatedHours   = fleetUsableKwh / dischargeRateKw
+```
+
+### Estimated hours (per battery)
+
+```
+batCapacityKwh  = bat.ratedEnergyKwh ?? packCapacityKwh/N ?? bat.remainingKwh/(bat.soc/100)
+batUsableKwh    = max(0, bat.remainingKwh − batCapacityKwh × minSocPct / 100)
+batDischargeKw  = |bat.power| / 1000       if bat.power < −50 W  (actively discharging)
+                  dischargeRateKw / N       otherwise (proportional share of fleet rate)
+estimatedHours  = batUsableKwh / batDischargeKw
 ```
 
 ### SOC at sunrise

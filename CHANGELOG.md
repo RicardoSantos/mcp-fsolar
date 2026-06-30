@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.7] — 2026-06-30
+
+### Added
+- `computeAutonomy` now returns `perBattery[]` — per-pack estimated hours until `minSocPct` at current discharge rate
+- Fleet `estimatedHours` now correctly subtracts the `minSocPct` floor (previously used raw `totalRemainingKwh`)
+- `AutonomyPerBattery` TypeScript type
+
 ## [1.0.6] — 2026-06-30
 
 ### Added

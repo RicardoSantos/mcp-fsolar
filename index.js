@@ -612,6 +612,7 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   const totalRemainingKwh = batteries.reduce((s, b) => s + b.remainingKwh, 0);
   const totalPowerW       = batteries.reduce((s, b) => s + (b.power ?? 0), 0);
 
+  // ── Fleet discharge rate ──────────────────────────────────────────────────
   let dischargeRateKw;
   if (totalPowerW < -100) {
     dischargeRateKw = -totalPowerW / 1000;
@@ -624,8 +625,34 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   }
   dischargeRateKw = Math.max(0.2, Math.min(24, dischargeRateKw));
 
-  const estimatedHours = Math.round(totalRemainingKwh / dischargeRateKw * 10) / 10;
+  // ── Fleet hours until minSoc ──────────────────────────────────────────────
+  const totalCapacityKwh = packCapacityKwh
+    ?? batteries.reduce((s, b) => s + (b.ratedEnergyKwh ?? (b.soc > 0 ? b.remainingKwh / (b.soc / 100) : 0)), 0);
+  const fleetMinKwh    = totalCapacityKwh * (minSocPct / 100);
+  const fleetUsableKwh = Math.max(0, totalRemainingKwh - fleetMinKwh);
+  const estimatedHours = Math.round(fleetUsableKwh / dischargeRateKw * 10) / 10;
 
+  // ── Per-battery hours until minSoc ────────────────────────────────────────
+  const perBatCapacityKwh = packCapacityKwh != null ? packCapacityKwh / batteries.length : null;
+  const perBattery = batteries.map((bat) => {
+    const batCapacityKwh = bat.ratedEnergyKwh
+      ?? perBatCapacityKwh
+      ?? (bat.soc > 0 ? bat.remainingKwh / (bat.soc / 100) : 0);
+    const batMinKwh      = batCapacityKwh * (minSocPct / 100);
+    const batUsableKwh   = Math.max(0, bat.remainingKwh - batMinKwh);
+    // Use battery's own discharge if actively discharging, else proportional share of fleet rate
+    const batDischargeKw = (bat.power ?? 0) < -50
+      ? Math.abs(bat.power) / 1000
+      : dischargeRateKw / batteries.length;
+    return {
+      sn:             bat.sn,
+      alias:          bat.alias,
+      remainingKwh:   Math.round(bat.remainingKwh * 10) / 10,
+      estimatedHours: Math.round(batUsableKwh / batDischargeKw * 10) / 10,
+    };
+  });
+
+  // ── SOC at sunrise ────────────────────────────────────────────────────────
   let estimatedSocAtSunrise = null;
   if (sunriseAt != null && packCapacityKwh != null) {
     const hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
@@ -639,6 +666,7 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
     dischargeRateKw:      Math.round(dischargeRateKw * 10) / 10,
     estimatedHours,
     estimatedSocAtSunrise,
+    perBattery,
   };
 }
 

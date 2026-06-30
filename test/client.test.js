@@ -48,12 +48,14 @@ function makeClient(overrides = {}, extra = {}) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test("constructor throws when user is empty", () => {
-  assert.throws(() => new FelicityClient({ user: "", pass: "x" }), /required/);
+test("getBatteries throws when user is empty", async () => {
+  const c = new FelicityClient({ user: "", pass: "x", cache: new MemoryCacheAdapter() });
+  await assert.rejects(() => c.getBatteries(), /required/);
 });
 
-test("constructor throws when pass is empty", () => {
-  assert.throws(() => new FelicityClient({ user: "x", pass: "" }), /required/);
+test("getBatteries throws when pass is empty", async () => {
+  const c = new FelicityClient({ user: "x", pass: "", cache: new MemoryCacheAdapter() });
+  await assert.rejects(() => c.getBatteries(), /required/);
 });
 
 test("getBatteries returns sorted array", async () => {

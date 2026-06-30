@@ -39,8 +39,9 @@ function loadEnv() {
 }
 loadEnv();
 
-const PORT    = parseInt(process.env.FELICITY_PORT    ?? "3010");
-const POLL_MS = parseInt(process.env.FELICITY_POLL_MS ?? "30000");
+const PORT          = parseInt(process.env.FELICITY_PORT    ?? "3010",  10);
+const POLL_MS       = parseInt(process.env.FELICITY_POLL_MS ?? "30000", 10);
+const MAX_BODY_SIZE = 65_536; // 64 KB
 
 // ── Client + shared cache ─────────────────────────────────────────────────────
 
@@ -51,6 +52,24 @@ const client = new FelicityClient({
   cache,
   ttl:   POLL_MS / 1000,
 });
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
+        return;
+      }
+      body += chunk;
+    });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
 
 let pollError = null;
 
@@ -213,17 +232,18 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/hooks") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
-        try {
-          const { url: hookUrl, events, params } = JSON.parse(body);
-          if (!hookUrl) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
-          const hook = hookStore.add({ url: hookUrl, events, params });
-          res.writeHead(201, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(hook));
-        } catch { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "invalid JSON" })); }
-      });
+      const body = await readBody(req);
+      try {
+        const { url: hookUrl, events, params } = JSON.parse(body);
+        if (!hookUrl) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
+        const hook = hookStore.add({ url: hookUrl, events, params });
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(hook));
+      } catch (e) {
+        const status = e.statusCode ?? 400;
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: status === 413 ? "request body too large" : "invalid JSON" }));
+      }
       return;
     }
 
@@ -282,15 +302,16 @@ const httpServer = http.createServer(async (req, res) => {
       const sessionId = url.searchParams.get("sessionId");
       const transport = sseTransports.get(sessionId);
       if (!transport) { res.writeHead(404); res.end("Session not found"); return; }
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", async () => {
-        try {
-          await transport.handlePostMessage(req, res, JSON.parse(body));
-        } catch (e) {
-          if (!res.headersSent) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Invalid request" })); }
+      try {
+        const body = await readBody(req);
+        await transport.handlePostMessage(req, res, JSON.parse(body));
+      } catch (e) {
+        if (!res.headersSent) {
+          const status = e.statusCode ?? 400;
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: status === 413 ? "request body too large" : "Invalid request" }));
         }
-      });
+      }
       return;
     }
 
@@ -299,6 +320,19 @@ const httpServer = http.createServer(async (req, res) => {
     console.error(`[http] ${req.method} ${url.pathname} — ${err.message}`);
     if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
   }
+});
+
+// ── Crash guards ──────────────────────────────────────────────────────────────
+
+process.on("uncaughtException", (err) => {
+  console.error(`[fsolar] UNCAUGHT EXCEPTION — ${new Date().toISOString()}`);
+  console.error(err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error(`[fsolar] UNHANDLED REJECTION — ${new Date().toISOString()}`);
+  console.error(reason);
 });
 
 // ── Shutdown ──────────────────────────────────────────────────────────────────

@@ -15,10 +15,11 @@
 const http = require("http");
 const fs   = require("fs");
 const path = require("path");
+const os   = require("os");
 const { McpServer }          = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
 const { z }                  = require("zod");
-const { FelicityClient, MemoryCacheAdapter, snapshotStore, startPoller } = require("./index.js");
+const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, startPoller, readState } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,41 @@ const httpServer = http.createServer(async (req, res) => {
       if (!result.battery) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "not found" })); return; }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+      return;
+    }
+
+    // ── Snapshot download ───────────────────────────────────────────────────
+    if (req.method === "GET" && url.pathname.startsWith("/snapshots/")) {
+      const store = url.pathname.slice("/snapshots/".length);
+      const files = {
+        intraday: path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-snapshots.json"),
+        daily:    path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-daily.json"),
+        state:    path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-state.json"),
+      };
+      const file = files[store];
+      if (!file) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or state` })); return; }
+      try {
+        const data = fs.readFileSync(file, "utf8");
+        res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${store}.json"` });
+        res.end(data);
+      } catch { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "no data yet" })); }
+      return;
+    }
+
+    // ── Snapshot reset ──────────────────────────────────────────────────────
+    if (req.method === "DELETE" && url.pathname.startsWith("/snapshots/")) {
+      const store = url.pathname.slice("/snapshots/".length);
+      const files = {
+        intraday: path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-snapshots.json"),
+        daily:    path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-daily.json"),
+      };
+      const toDelete = store === "all" ? Object.values(files) : [files[store]];
+      if (!toDelete[0]) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or all` })); return; }
+      const deleted = [];
+      for (const f of toDelete) { try { fs.unlinkSync(f); deleted.push(path.basename(f)); } catch { /* already gone */ } }
+      console.log(`[snapshots] reset: ${deleted.join(", ") || "nothing to delete"}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, deleted }));
       return;
     }
 

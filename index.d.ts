@@ -132,7 +132,26 @@ export declare class FelicityClient {
 
 export declare function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery;
 
-/** Start a background poller that calls getBatteries() at the configured interval.
+export interface FleetSummary {
+  totalKwh:       number;
+  totalPowerW:    number;
+  avgSoc:         number;
+  worstCellDelta: number | null;
+  maxTempC:       number;
+}
+
+export interface MaterializedState {
+  updatedAt: string;
+  batteries: Battery[];
+  trends:    Record<string, BalanceTrend>;
+  fleet:     FleetSummary;
+}
+
+/** Read the pre-computed materialized state written by startPoller. Returns null if not yet available. */
+export declare function readState(): MaterializedState | null;
+
+/** Start a background poller that calls getBatteries() at the configured interval,
+ *  writes snapshots, and materializes computed state to battery-state.json.
  *  Controlled by env vars: FELICITY_SNAPSHOT_ENABLED, FELICITY_SNAPSHOT_MS,
  *  FELICITY_SNAPSHOT_DAYS, FELICITY_DAILY_DAYS.
  *  Returns a stop function. */

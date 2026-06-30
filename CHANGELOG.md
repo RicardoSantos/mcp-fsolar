@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-06-30
+
+### Added
+- `readState()` — reads pre-computed materialized state (`battery-state.json`)
+- `startPoller` now writes `battery-state.json` after each successful poll (batteries, trends, fleet summary)
+- REST endpoints in standalone server: `GET /snapshots/{intraday|daily|state}` (download), `DELETE /snapshots/{intraday|daily|all}` (reset)
+- `FleetSummary` and `MaterializedState` TypeScript types
+
 ## [1.0.3] — 2026-06-30
 
 ### Added

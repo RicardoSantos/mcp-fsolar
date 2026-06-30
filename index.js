@@ -198,6 +198,39 @@ class DailySnapshotStore extends SnapshotStore {
 const snapshotStore      = new BatterySnapshotStore();
 const dailySnapshotStore = new DailySnapshotStore();
 
+// ── Materialized state ────────────────────────────────────────────────────────
+
+function _stateFile() {
+  return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-state.json");
+}
+
+function _writeState(batteries) {
+  try {
+    const trends = snapshotStore.getAllTrends(batteries);
+    const totalPowerW = batteries.reduce((s, b) => s + b.power, 0);
+    const state = {
+      updatedAt:      new Date().toISOString(),
+      batteries,
+      trends,
+      fleet: {
+        totalKwh:       Math.round(batteries.reduce((s, b) => s + b.remainingKwh, 0) * 100) / 100,
+        totalPowerW:    Math.round(totalPowerW),
+        avgSoc:         Math.round(batteries.reduce((s, b) => s + b.soc, 0) / batteries.length),
+        worstCellDelta: batteries.reduce((m, b) => b.cellDelta != null && b.cellDelta > m ? b.cellDelta : m, 0) || null,
+        maxTempC:       batteries.reduce((m, b) => b.tempMax > m ? b.tempMax : m, -Infinity),
+      },
+    };
+    fs.writeFileSync(_stateFile(), JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.error("[fsolar] state write failed:", e.message);
+  }
+}
+
+function readState() {
+  try { return JSON.parse(fs.readFileSync(_stateFile(), "utf8")); }
+  catch { return null; }
+}
+
 // ── startPoller ───────────────────────────────────────────────────────────────
 
 function startPoller(client) {
@@ -207,8 +240,12 @@ function startPoller(client) {
     return () => {};
   }
   async function tick() {
-    try { await client.getBatteries(); }
-    catch (e) { console.error("[fsolar] poller error:", e.message); }
+    try {
+      const { batteries } = await client.getBatteries();
+      _writeState(batteries);
+    } catch (e) {
+      console.error("[fsolar] poller error:", e.message);
+    }
   }
   tick();
   const timer = setInterval(tick, ms);
@@ -395,5 +432,6 @@ module.exports = {
   snapshotStore,
   dailySnapshotStore,
   startPoller,
+  readState,
   buildBattery,
 };

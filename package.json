@@ -1,0 +1,50 @@
+{
+  "name": "fsolar-mcp",
+  "version": "1.0.0",
+  "description": "Felicity Solar battery MCP server + REST API — exposes live battery data to Claude Code and any MCP client",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "fsolar-mcp": "server.js"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "server.js",
+    "probe.js",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "probe": "node probe.js",
+    "test":  "node --test"
+  },
+  "keywords": [
+    "felicity-solar",
+    "battery",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "solar",
+    "bms",
+    "iot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RicardoSantos/mcp-fsolar.git"
+  },
+  "homepage": "https://github.com/RicardoSantos/mcp-fsolar#readme",
+  "bugs": {
+    "url": "https://github.com/RicardoSantos/mcp-fsolar/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

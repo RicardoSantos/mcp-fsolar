@@ -40,8 +40,12 @@ node server.js
 |---|---|---|---|
 | `FELICITY_USER` | Yes | — | Felicity Solar account email |
 | `FELICITY_PASS` | Yes | — | Felicity Solar account password |
-| `FELICITY_PORT` | No | `3010` | HTTP server port |
-| `FELICITY_POLL_MS` | No | `30000` | Background poll interval (ms) |
+| `FELICITY_PORT` | No | `3010` | HTTP server port (standalone) |
+| `FELICITY_POLL_MS` | No | `30000` | API poll interval in ms (standalone) |
+| `FELICITY_SNAPSHOT_ENABLED` | No | `true` | Enable background snapshot poller |
+| `FELICITY_SNAPSHOT_MS` | No | `600000` | Snapshot interval in ms (min 60 000, max 3 600 000) |
+| `FELICITY_SNAPSHOT_DAYS` | No | `3` | Days of intra-day snapshots to retain (min 1, max 30) |
+| `FELICITY_DAILY_DAYS` | No | `90` | Days of daily snapshots to retain (min 7, max 365) |
 
 ## Wire into Claude Code
 

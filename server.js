@@ -18,7 +18,7 @@ const path = require("path");
 const { McpServer }          = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
 const { z }                  = require("zod");
-const { FelicityClient, MemoryCacheAdapter, snapshotStore } = require("./index.js");
+const { FelicityClient, MemoryCacheAdapter, snapshotStore, startPoller } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ let pollError = null;
 
 async function poll() {
   try {
-    const { batteries, fetchedAt } = await client.getBatteries();
+    const { batteries } = await client.getBatteries();
     pollError = null;
     const summary = batteries.map((b) => `${b.alias} ${b.soc}% ${b.chargingState} ${b.power}W`).join(" | ");
     console.log(`[poll] ${new Date().toLocaleTimeString()} — ${summary}`);
@@ -255,6 +255,7 @@ async function main() {
   console.log(`[fsolar] Felicity MCP + REST server — port ${PORT}  poll ${POLL_MS / 1000}s`);
   await poll();
   setInterval(poll, POLL_MS);
+  startPoller(client);
   httpServer.listen(PORT, () => {
     console.log(`[fsolar] REST  http://localhost:${PORT}/batteries`);
     console.log(`[fsolar] MCP   http://localhost:${PORT}/sse`);

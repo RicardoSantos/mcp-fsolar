@@ -132,5 +132,11 @@ export declare class FelicityClient {
 
 export declare function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery;
 
+/** Start a background poller that calls getBatteries() at the configured interval.
+ *  Controlled by env vars: FELICITY_SNAPSHOT_ENABLED, FELICITY_SNAPSHOT_MS,
+ *  FELICITY_SNAPSHOT_DAYS, FELICITY_DAILY_DAYS.
+ *  Returns a stop function. */
+export declare function startPoller(client: FelicityClient): () => void;
+
 export declare const snapshotStore:      BatterySnapshotStore;
 export declare const dailySnapshotStore: DailySnapshotStore;

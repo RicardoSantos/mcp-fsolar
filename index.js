@@ -119,11 +119,33 @@ class SnapshotStore {
   getSnapshots() { return this._load(); }
 }
 
+// ── Snapshot config helpers ───────────────────────────────────────────────────
+
+const SNAPSHOT_MS_DEFAULT   = 10 * 60 * 1000;   // 10 min
+const SNAPSHOT_MS_MIN       = 60 * 1000;         // 1 min
+const SNAPSHOT_MS_MAX       = 60 * 60 * 1000;    // 1 hour
+const SNAPSHOT_DAYS_DEFAULT = 3;
+const SNAPSHOT_DAYS_MIN     = 1;
+const SNAPSHOT_DAYS_MAX     = 30;
+const DAILY_DAYS_DEFAULT    = 90;
+const DAILY_DAYS_MIN        = 7;
+const DAILY_DAYS_MAX        = 365;
+
+function resolveSnapshotConfig() {
+  const enabled = (process.env.FELICITY_SNAPSHOT_ENABLED ?? "true") === "true";
+  const ms      = Math.min(SNAPSHOT_MS_MAX,  Math.max(SNAPSHOT_MS_MIN,  parseInt(process.env.FELICITY_SNAPSHOT_MS   ?? String(SNAPSHOT_MS_DEFAULT))));
+  const days    = Math.min(SNAPSHOT_DAYS_MAX, Math.max(SNAPSHOT_DAYS_MIN, parseInt(process.env.FELICITY_SNAPSHOT_DAYS ?? String(SNAPSHOT_DAYS_DEFAULT))));
+  const ddays   = Math.min(DAILY_DAYS_MAX,    Math.max(DAILY_DAYS_MIN,    parseInt(process.env.FELICITY_DAILY_DAYS    ?? String(DAILY_DAYS_DEFAULT))));
+  const maxIntra = Math.ceil((days * 24 * 60 * 60 * 1000) / ms);
+  return { enabled, ms, maxIntra, ddays };
+}
+
 // ── BatterySnapshotStore ──────────────────────────────────────────────────────
 
 class BatterySnapshotStore extends SnapshotStore {
   constructor() {
-    super({ fileName: "battery-snapshots.json", maxSnapshots: 72, intervalMs: 10 * 60 * 1000 });
+    const { ms, maxIntra } = resolveSnapshotConfig();
+    super({ fileName: "battery-snapshots.json", maxSnapshots: maxIntra, intervalMs: ms });
   }
 
   _computeTrend(sn, snapshots) {
@@ -168,12 +190,32 @@ class BatterySnapshotStore extends SnapshotStore {
 
 class DailySnapshotStore extends SnapshotStore {
   constructor() {
-    super({ fileName: "battery-daily.json", maxSnapshots: 90, intervalMs: 24 * 60 * 60 * 1000 });
+    const { ddays } = resolveSnapshotConfig();
+    super({ fileName: "battery-daily.json", maxSnapshots: ddays, intervalMs: 24 * 60 * 60 * 1000 });
   }
 }
 
 const snapshotStore      = new BatterySnapshotStore();
 const dailySnapshotStore = new DailySnapshotStore();
+
+// ── startPoller ───────────────────────────────────────────────────────────────
+
+function startPoller(client) {
+  const { enabled, ms } = resolveSnapshotConfig();
+  if (!enabled) {
+    console.log("[fsolar] snapshot poller disabled (FELICITY_SNAPSHOT_ENABLED=false)");
+    return () => {};
+  }
+  async function tick() {
+    try { await client.getBatteries(); }
+    catch (e) { console.error("[fsolar] poller error:", e.message); }
+  }
+  tick();
+  const timer = setInterval(tick, ms);
+  if (timer.unref) timer.unref();
+  console.log(`[fsolar] snapshot poller started — every ${ms / 1000}s`);
+  return () => clearInterval(timer);
+}
 
 // ── MemoryCacheAdapter ────────────────────────────────────────────────────────
 
@@ -352,5 +394,6 @@ module.exports = {
   DailySnapshotStore,
   snapshotStore,
   dailySnapshotStore,
+  startPoller,
   buildBattery,
 };

@@ -140,12 +140,59 @@ export interface FleetSummary {
   maxTempC:       number;
 }
 
+export interface BatteryHealth {
+  alias:           string;
+  cellDeltaStatus: "ok" | "warn" | "crit" | null;
+  cellDelta:       number | null;
+  tempStatus:      "ok" | "warn" | "crit" | null;
+  tempMax:         number | null;
+  sohStatus:       "ok" | "warn" | null;
+  soh:             number | null;
+  outliers:        number[];   // 1-based cell indices persistently below pack avg
+  avgCRate:        number | null;
+}
+
+export interface AutonomyResult {
+  totalRemainingKwh:    number;
+  dischargeRateKw:      number;
+  estimatedHours:       number;
+  /** Estimated SOC (%) at sunriseAt. null if sunriseAt or packCapacityKwh not provided. */
+  estimatedSocAtSunrise: number | null;
+}
+
+export interface AutonomyOptions {
+  /** ISO string or Date of next sunrise. Required for estimatedSocAtSunrise. */
+  sunriseAt?:         string | Date | null;
+  /** Total pack capacity in kWh. Required for estimatedSocAtSunrise. */
+  packCapacityKwh?:   number | null;
+  /** Minimum SOC % the battery stops at (default 5). */
+  minSocPct?:         number;
+  /** Fallback discharge rate kW when not actively discharging and no night snapshots (default 1.5). */
+  defaultDischargeKw?: number;
+}
+
 export interface MaterializedState {
   updatedAt: string;
   batteries: Battery[];
   trends:    Record<string, BalanceTrend>;
+  health:    Record<string, BatteryHealth>;
+  autonomy:  AutonomyResult;
   fleet:     FleetSummary;
 }
+
+/** Compute per-battery health metrics from live batteries and recent snapshots. */
+export declare function computeHealth(
+  batteries: Battery[],
+  snapshots:  BatterySnapshot[]
+): Record<string, BatteryHealth>;
+
+/** Compute fleet autonomy estimate.
+ *  Pass sunriseAt + packCapacityKwh to get estimatedSocAtSunrise, otherwise it is null. */
+export declare function computeAutonomy(
+  batteries: Battery[],
+  snapshots:  BatterySnapshot[],
+  opts?:      AutonomyOptions
+): AutonomyResult;
 
 /** Read the pre-computed materialized state written by startPoller. Returns null if not yet available. */
 export declare function readState(): MaterializedState | null;

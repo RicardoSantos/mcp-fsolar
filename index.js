@@ -206,12 +206,17 @@ function _stateFile() {
 
 function _writeState(batteries) {
   try {
-    const trends = snapshotStore.getAllTrends(batteries);
+    const snapshots   = snapshotStore.getSnapshots();
+    const trends      = snapshotStore.getAllTrends(batteries);
+    const health      = computeHealth(batteries, snapshots);
+    const autonomy    = computeAutonomy(batteries, snapshots);
     const totalPowerW = batteries.reduce((s, b) => s + b.power, 0);
     const state = {
-      updatedAt:      new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       batteries,
       trends,
+      health,
+      autonomy,
       fleet: {
         totalKwh:       Math.round(batteries.reduce((s, b) => s + b.remainingKwh, 0) * 100) / 100,
         totalPowerW:    Math.round(totalPowerW),
@@ -423,6 +428,114 @@ class FelicityClient {
   }
 }
 
+// ── computeHealth ─────────────────────────────────────────────────────────────
+
+const HEALTH_CELL_DELTA_WARN = 120;  // mV
+const HEALTH_CELL_DELTA_CRIT = 200;  // mV
+const HEALTH_TEMP_WARN       = 40;   // °C
+const HEALTH_TEMP_CRIT       = 50;   // °C
+const HEALTH_OUTLIER_MV      = 35;   // mV below pack avg, persistent across last 3 snaps
+const HEALTH_SOH_WARN        = 90;   // %
+
+function computeHealth(batteries, snapshots) {
+  const lastN  = snapshots.slice(-3);
+  const result = {};
+
+  for (const bat of batteries) {
+    const cellDeltaStatus = bat.cellDelta == null ? null
+      : bat.cellDelta >= HEALTH_CELL_DELTA_CRIT ? "crit"
+      : bat.cellDelta >= HEALTH_CELL_DELTA_WARN ? "warn"
+      : "ok";
+
+    const tempStatus = bat.tempMax == null ? null
+      : bat.tempMax >= HEALTH_TEMP_CRIT ? "crit"
+      : bat.tempMax >= HEALTH_TEMP_WARN ? "warn"
+      : "ok";
+
+    const sohStatus = bat.soh == null ? null : bat.soh < HEALTH_SOH_WARN ? "warn" : "ok";
+
+    // Persistent cell outliers — only meaningful while discharging
+    let outliers = [];
+    if (bat.chargingState === "discharging" && lastN.length >= 3 && bat.cellVoltages?.length > 0) {
+      const avg = bat.cellVoltages.reduce((s, v) => s + v, 0) / bat.cellVoltages.length;
+      outliers = bat.cellVoltages
+        .map((v, i) => ({ cell: i + 1, dev: v - avg }))
+        .filter((c) => c.dev < -HEALTH_OUTLIER_MV)
+        .filter((o) => lastN.every((snap) => {
+          const b = snap.batteries.find((b) => b.sn === bat.sn);
+          if (!b?.voltages?.length || (b.power ?? 0) >= 0) return false;
+          const a = b.voltages.reduce((s, v) => s + v, 0) / b.voltages.length;
+          return (b.voltages[o.cell - 1] ?? a) - a < -HEALTH_OUTLIER_MV;
+        }))
+        .map((o) => o.cell);
+    }
+
+    // Average C-rate from recent snapshots
+    const recentSnaps = snapshots.slice(-6);
+    const ratedW = (bat.capacityAh ?? 0) * (bat.voltage ?? 48);
+    const cRates = recentSnaps.flatMap((s) => {
+      const b = s.batteries.find((b) => b.sn === bat.sn);
+      if (!b || Math.abs(b.power ?? 0) < 50 || ratedW <= 0) return [];
+      return [Math.abs(b.power) / ratedW];
+    });
+    const avgCRate = cRates.length
+      ? Math.round(cRates.reduce((s, v) => s + v, 0) / cRates.length * 100) / 100
+      : null;
+
+    result[bat.sn] = {
+      alias:           bat.alias,
+      cellDeltaStatus,
+      cellDelta:       bat.cellDelta ?? null,
+      tempStatus,
+      tempMax:         bat.tempMax ?? null,
+      sohStatus,
+      soh:             bat.soh ?? null,
+      outliers,
+      avgCRate,
+    };
+  }
+
+  return result;
+}
+
+// ── computeAutonomy ───────────────────────────────────────────────────────────
+
+function computeAutonomy(batteries, snapshots, opts = {}) {
+  const { sunriseAt = null, packCapacityKwh = null, minSocPct = 5, defaultDischargeKw = 1.5 } = opts;
+
+  const totalRemainingKwh = batteries.reduce((s, b) => s + b.remainingKwh, 0);
+  const totalPowerW       = batteries.reduce((s, b) => s + (b.power ?? 0), 0);
+
+  let dischargeRateKw;
+  if (totalPowerW < -100) {
+    dischargeRateKw = -totalPowerW / 1000;
+  } else {
+    const nightSnaps = snapshots.filter((s) => s.batteries.some((b) => (b.power ?? 0) < -100));
+    const avgW = nightSnaps.length
+      ? nightSnaps.reduce((s, sn) => s + sn.batteries.reduce((a, b) => a + Math.abs(Math.min(0, b.power ?? 0)), 0), 0) / nightSnaps.length
+      : 0;
+    dischargeRateKw = avgW > 100 ? avgW / 1000 : defaultDischargeKw;
+  }
+  dischargeRateKw = Math.max(0.2, Math.min(24, dischargeRateKw));
+
+  const estimatedHours = Math.round(totalRemainingKwh / dischargeRateKw * 10) / 10;
+
+  let estimatedSocAtSunrise = null;
+  if (sunriseAt != null && packCapacityKwh != null) {
+    const hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
+    const minKwh = packCapacityKwh * (minSocPct / 100);
+    const remaining = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
+    estimatedSocAtSunrise = Math.max(minSocPct, Math.min(100, Math.round((remaining / packCapacityKwh) * 100)));
+  }
+
+  return {
+    totalRemainingKwh:    Math.round(totalRemainingKwh * 10) / 10,
+    dischargeRateKw:      Math.round(dischargeRateKw * 10) / 10,
+    estimatedHours,
+    estimatedSocAtSunrise,
+  };
+}
+
 module.exports = {
   FelicityClient,
   MemoryCacheAdapter,
@@ -433,5 +546,7 @@ module.exports = {
   dailySnapshotStore,
   startPoller,
   readState,
+  computeHealth,
+  computeAutonomy,
   buildBattery,
 };

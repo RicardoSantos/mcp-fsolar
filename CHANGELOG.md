@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.5] — 2026-06-30
+
+### Added
+- `computeHealth(batteries, snapshots)` — per-battery health: cell delta status (ok/warn/crit), temp status, SOH status, persistent cell outliers, average C-rate
+- `computeAutonomy(batteries, snapshots, opts)` — fleet autonomy: estimated hours, discharge rate, `estimatedSocAtSunrise` (null unless `sunriseAt` + `packCapacityKwh` provided)
+- `startPoller` now writes `health` and `autonomy` into `battery-state.json`
+- `BatteryHealth`, `AutonomyResult`, `AutonomyOptions` TypeScript types
+
 ## [1.0.4] — 2026-06-30
 
 ### Added

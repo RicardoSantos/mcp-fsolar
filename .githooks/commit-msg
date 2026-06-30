@@ -1,4 +1,4 @@
 #!/bin/sh
 # npx fails on UNC paths (CMD.EXE limitation). Call node directly instead.
 REPO_ROOT=$(git rev-parse --show-toplevel)
-node "$REPO_ROOT/node_modules/@commitlint/cli/lib/cli.js" --edit "$1"
+node "$REPO_ROOT/node_modules/@commitlint/cli/lib/cli.js" --config "$REPO_ROOT/commitlint.config.cjs" --edit "$1"

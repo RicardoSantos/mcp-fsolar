@@ -1,0 +1,10 @@
+# Dev/tooling — never distributed
+.githooks/
+.github/
+test/
+commitlint.config.cjs
+.env
+.env.*
+!.env.example
+node_modules/
+*.tgz

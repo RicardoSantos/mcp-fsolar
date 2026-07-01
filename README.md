@@ -49,7 +49,7 @@ node server.js
 
 ## Algorithms & metrics
 
-Detailed documentation of every derived metric (formulas, thresholds, assumptions, webhook events) is in [ALGORITHMS.md](./ALGORITHMS.md).
+Detailed documentation of every derived metric (formulas, thresholds, assumptions, webhook events) is in [docs/ALGORITHMS.md](./docs/ALGORITHMS.md).
 
 ## Wire into Claude Code
 

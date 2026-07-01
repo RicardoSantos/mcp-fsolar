@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.12] — 2026-07-01
+
+### Changed
+- `index.js`: refactored from monolithic ~750-line file into focused modules under `src/` — `helpers.js`, `http.js`, `cache.js`, `battery.js`, `store.js`, `hooks.js`, `compute.js`, `state.js`; root `index.js` is now a thin re-export wrapper with zero logic
+- `ALGORITHMS.md`: moved to `docs/ALGORITHMS.md`; `README.md` link updated
+- `package.json`: `files` includes `src/` and `docs/`; public API unchanged
+
 ## [1.0.11] — 2026-07-01
 
 ### Fixed

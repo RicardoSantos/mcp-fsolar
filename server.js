@@ -48,6 +48,35 @@ loadEnv();
 const PORT          = parseInt(process.env.FELICITY_PORT    ?? "3010",  10);
 const POLL_MS       = parseInt(process.env.FELICITY_POLL_MS ?? "30000", 10);
 const MAX_BODY_SIZE = 65_536; // 64 KB
+const API_KEY       = process.env.FELICITY_API_KEY   || null;
+const CORS_ORIGIN   = process.env.FELICITY_CORS_ORIGIN ?? null;
+
+// Reflect the request Origin only when it is a localhost origin (any port).
+// Set FELICITY_CORS_ORIGIN=* to open fully, or to a specific origin to lock it down.
+function getAllowedOrigin(req) {
+  if (CORS_ORIGIN) return CORS_ORIGIN;
+  const origin = req.headers.origin;
+  if (!origin) return null;
+  try {
+    const { hostname } = new URL(origin);
+    if (hostname === "localhost" || hostname === "127.0.0.1") return origin;
+  } catch { /* malformed origin */ }
+  return null;
+}
+
+// Returns false and sends 401 when FELICITY_API_KEY is set and the request
+// does not supply the matching token via Authorization: Bearer <key> or X-API-Key.
+function checkAuth(req, res) {
+  if (!API_KEY) return true;
+  const raw   = req.headers["authorization"] ?? req.headers["x-api-key"] ?? "";
+  const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
+  if (token !== API_KEY) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "unauthorized" }));
+    return false;
+  }
+  return true;
+}
 
 // ── Client + shared cache ─────────────────────────────────────────────────────
 
@@ -208,10 +237,18 @@ const sseTransports = new Map();
 const httpServer = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  const allowedOrigin = getAllowedOrigin(req);
+  if (allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Last-Fetched-At");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+
+  // Auth check on all REST endpoints; MCP SSE/messages are exempt.
+  const isMcpPath = url.pathname === "/sse" || url.pathname === "/messages";
+  if (!isMcpPath && !checkAuth(req, res)) return;
 
   try {
     if (req.method === "GET" && url.pathname === "/batteries") {
@@ -248,7 +285,7 @@ const httpServer = http.createServer(async (req, res) => {
       } catch (e) {
         const status = e.statusCode ?? 400;
         res.writeHead(status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: status === 413 ? "request body too large" : "invalid JSON" }));
+        res.end(JSON.stringify({ error: status === 413 ? "request body too large" : (e.message || "invalid request") }));
       }
       return;
     }

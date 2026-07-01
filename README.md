@@ -41,6 +41,8 @@ claude mcp add felicity \
   -- npx fsolar-mcp
 ```
 
+> **Credentials tip:** the `-e KEY=val` flags appear in shell history. To avoid that, store credentials in `.env` and use the JSON config approach (Claude Desktop / Cursor sections below) — credentials stay in the config file, not the command line.
+
 Claude Code launches a fresh `fsolar-mcp` process for each session (via stdio) and kills it when done. Each process starts its own poller, so `get_balance_trend` needs ~10 min of uptime before trend data is available.
 
 Ask Claude things like *"what's the battery SOC?"*, *"is any cell imbalanced?"*, or *"show me the cell voltages for Bat2"*.
@@ -293,6 +295,8 @@ startPoller(client)
 | `FELICITY_USER` | Yes | — | Felicity Solar account email |
 | `FELICITY_PASS` | Yes | — | Felicity Solar account password |
 | `FELICITY_PORT` | No | `3010` | HTTP server port |
+| `FELICITY_API_KEY` | No | — | If set, all REST requests must supply `Authorization: Bearer <key>` or `X-API-Key: <key>` |
+| `FELICITY_CORS_ORIGIN` | No | localhost origins only | Allowed CORS origin. Set to `*` to open fully, or an explicit origin to lock down |
 | `FELICITY_POLL_MS` | No | `30000` | Felicity API poll interval (ms) |
 | `FELICITY_TELEMETRY_MS` | No | `300000` | Snapshot emitter / webhook interval (ms) |
 | `FELICITY_SNAPSHOT_ENABLED` | No | `true` | Enable background snapshot store |

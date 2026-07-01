@@ -49,9 +49,11 @@ class SnapshotStore {
 
   _save(snapshots) {
     try {
-      const tmp = this._file + ".tmp";
+      const dest = this._file;
+      const tmp  = dest + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify({ snapshots }, null, 2));
-      fs.renameSync(tmp, this._file);
+      fs.renameSync(tmp, dest);
+      try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
     } catch (e) { console.error(`[SnapshotStore:${this._fileName}] write failed: ${e.message}`); }
   }
 

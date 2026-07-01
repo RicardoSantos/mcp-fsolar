@@ -47,9 +47,11 @@ class HookStore {
 
   _save(hooks) {
     try {
-      const tmp = _hookFile() + ".tmp";
+      const dest = _hookFile();
+      const tmp  = dest + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify({ hooks }, null, 2));
-      fs.renameSync(tmp, _hookFile());
+      fs.renameSync(tmp, dest);
+      try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
     } catch (e) { console.error(`[HookStore] save failed: ${e.message}`); }
   }
 
@@ -60,13 +62,22 @@ class HookStore {
 
   _saveCooldowns(cooldowns) {
     try {
-      const tmp = _cooldownFile() + ".tmp";
+      const dest = _cooldownFile();
+      const tmp  = dest + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify(cooldowns, null, 2));
-      fs.renameSync(tmp, _cooldownFile());
+      fs.renameSync(tmp, dest);
+      try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
     } catch (e) { console.error(`[HookStore] cooldown save failed: ${e.message}`); }
   }
 
   add({ url, events, secret }) {
+    let parsed;
+    try { parsed = new URL(url); } catch {
+      throw Object.assign(new Error("invalid webhook url"), { statusCode: 400 });
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw Object.assign(new Error("webhook url must use http or https"), { statusCode: 400 });
+    }
     const hooks = this._load();
     const id = crypto.randomBytes(4).toString("hex");
     hooks.push({ id, url, events: events ?? [], secret: secret ?? null, createdAt: new Date().toISOString() });

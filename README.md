@@ -4,6 +4,36 @@ MCP server + REST API + JS client for [Felicity Solar](https://www.felicitysolar
 
 Ask Claude things like *"what's the battery SOC?"*, *"is any cell imbalanced?"*, or *"show me the cell voltages for Bat2"* — live from the Felicity cloud.
 
+## What you can build
+
+Use the live battery data, snapshots, and health metrics from this package to build real-time monitoring dashboards, alerting pipelines, or home automation integrations for your Felicity Solar system.
+
+**Real-time fleet view** — per-cell voltages, SOC, power flow, SOH, balancing state and temperature for every battery in the pack, updated every 30 s via the background poller.
+
+![Fleet view — real-time battery status](docs/images/fleet.jpg)
+
+**Cell-level inspection** — click any cell to see its voltage, deviation from pack average, module spread, LiFePO4 charge %, and whether it is the weakest or strongest cell limiting your pack.
+
+![Cell inspection tooltip — weakest/strongest cell detail](docs/images/fleet_blue.jpg)
+
+**Historical trends** — cell-delta and temperature charts over the last 24 h, per-cell deviation heatmap averaged across all snapshots, daily SOH trend, and lifetime cycle-count with projected remaining battery life.
+
+![Battery history — cell delta, temperature and deviation heatmap](docs/images/fleet_daily.jpg)
+
+### Data available from the API
+
+| Category | Key fields |
+|---|---|
+| **Pack state** | `soc`, `soh`, `voltage`, `current`, `power`, `chargingState`, `remainingKwh` |
+| **Cell voltages** | `cellVoltages[16]`, `cellDelta`, `cellVoltageMin/Max`, `minCellNum`, `maxCellNum` |
+| **Temperature** | `cellTemps[4]`, `tempMin`, `tempMax` |
+| **Balancing** | `isBalancing`, `balancingCount`, `currentBalancingStreak`, `direction` |
+| **BMS lifecycle** | `batCycleIndex`, `batFullCount`, `batUnderVoltageCount` |
+| **Module breakdown** | per-module `cells[4]`, `temp`, `min/max/delta` (4 modules × 4 cells) |
+| **BMS limits** | `chargeVoltLimit`, `dischargeVoltLimit`, `chargeCurrLimit`, `dischargeCurrLimit` |
+| **Snapshots** | 10-min intra-day history + daily rollups for trend charts |
+| **Computed health** | `cellDeltaCrit/Warn`, `tempCrit/Warn`, `sohWarn`, balance trend direction |
+
 ## Install
 
 ```bash

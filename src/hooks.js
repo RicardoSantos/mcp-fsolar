@@ -86,8 +86,11 @@ class HookStore {
   }
 
   remove(id) {
-    const hooks = this._load().filter((h) => h.id !== id);
-    this._save(hooks);
+    const hooks = this._load();
+    const filtered = hooks.filter((h) => h.id !== id);
+    if (filtered.length === hooks.length) return false;
+    this._save(filtered);
+    return true;
   }
 
   list() { return this._load(); }

@@ -282,6 +282,63 @@ The receiver maps the `event` field to the appropriate notification call. This e
 
 ---
 
+## Snapshot telemetry (`snapshotEmitter` / `HookEvent.SNAPSHOT`)
+
+A time-based event that fires every `FELICITY_TELEMETRY_MS` (default 5 min) carrying the last battery data fetched by the poller. It is not condition-based and has no cooldown — it fires on schedule regardless of battery state.
+
+Two delivery mechanisms fire simultaneously after each interval:
+
+**Same-process (EventEmitter):**
+```js
+import { snapshotEmitter, startPoller } from 'fsolar-mcp'
+
+snapshotEmitter.on('snapshot', ({ batteries, health, ts }) => {
+  // batteries[n].batCycleIndex — BMS-native cycle counter
+  // batteries[n].soc, batteries[n].power — current state
+  // batteries[n].dataTime — when Felicity last reported this data
+  // health[sn].cellDeltaStatus, etc.
+})
+```
+
+**Cross-process (HTTP hook):**
+```http
+POST /hooks
+Content-Type: application/json
+
+{ "url": "https://your-app/api/felicity-receiver", "events": ["snapshot"] }
+```
+
+The HTTP payload is the same `SnapshotPayload` structure, JSON-serialised.
+
+### Payload (`SnapshotPayload`)
+
+| Field | Type | Description |
+|---|---|---|
+| `batteries` | `Battery[]` | Full battery objects from the last poller tick |
+| `health` | `Record<sn, BatteryHealth>` | Computed health metrics for each battery |
+| `ts` | `string` | ISO timestamp of when the event was emitted |
+
+Check `batteries[n].dataTime` (the Felicity API's own timestamp) to detect stale data — `ts` reflects emission time, not fetch time.
+
+### Intended use: telemetry persistence
+
+The `SNAPSHOT` event is designed to feed a lightweight persistence layer that stores periodic readings without polling the Felicity API from the consumer side:
+
+```
+snapshotEmitter.on('snapshot', ({ batteries, ts }) => {
+  for (const bat of batteries) {
+    db.insert('felicity_readings', {
+      sn: bat.sn, soc: bat.soc, power: bat.power,
+      bat_cycle_index: bat.batCycleIndex, recorded_at: ts
+    })
+  }
+})
+```
+
+This lets long-running analytics (e.g. battery lifetime, cycle tracking) read from a local table instead of the live API, and use `batCycleIndex` — the BMS's own cumulative cycle counter — instead of approximating cycles from integrated kWh.
+
+---
+
 ## Environment variables
 
 ### Required
@@ -303,9 +360,15 @@ The receiver maps the `event` field to the appropriate notification call. This e
 | Variable | Default | Range | Description |
 |---|---|---|---|
 | `FELICITY_SNAPSHOT_ENABLED` | `true` | `true` / `false` | Enable/disable the background snapshot + webhook poller |
-| `FELICITY_SNAPSHOT_MS` | `600000` (10 min) | 60 000 – 3 600 000 | Intra-day snapshot interval (ms) |
+| `FELICITY_SNAPSHOT_MS` | `600000` (10 min) | 60 000 – 3 600 000 | Intra-day snapshot interval — how often a snapshot is persisted to `battery-snapshots.json` |
 | `FELICITY_SNAPSHOT_DAYS` | `3` | 1 – 30 | Intra-day snapshot retention window (days) |
 | `FELICITY_DAILY_DAYS` | `90` | 7 – 365 | Daily snapshot retention (days) |
+
+### Telemetry emitter
+
+| Variable | Default | Description |
+|---|---|---|
+| `FELICITY_TELEMETRY_MS` | `300000` (5 min) | How often `snapshotEmitter` fires and HTTP hooks subscribed to `SNAPSHOT` are called. Independent from the snapshot store interval. |
 
 ### Persistence
 
@@ -427,5 +490,6 @@ Event identifiers used in webhook subscriptions and payloads. Pass one or more i
 | `HookEvent.FULL` | `"full"` | _(reserved — not yet fired)_ | 8 h |
 | `HookEvent.ONLINE` | `"online"` | _(reserved — not yet fired)_ | 1 h |
 | `HookEvent.OFFLINE` | `"offline"` | _(reserved — not yet fired)_ | 1 h |
+| `HookEvent.SNAPSHOT` | `"snapshot"` | Time-based — fires every `FELICITY_TELEMETRY_MS` | **no cooldown** |
 
-Cooldowns are per `(hook id, event, battery SN)` triple and persisted in `battery-hook-cooldowns.json`.
+Cooldowns are per `(hook id, event, battery SN)` triple and persisted in `battery-hook-cooldowns.json`. `SNAPSHOT` is time-based and bypasses the cooldown system entirely.

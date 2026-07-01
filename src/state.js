@@ -8,8 +8,8 @@ const { snapshotStore }                  = require("./store");
 const { hookStore }                      = require("./hooks");
 const { computeHealth, computeAutonomy } = require("./compute");
 
-const POLL_MS     = parseInt(process.env.FELICITY_POLL_MS     ?? "30000",  10);
-const SNAPSHOT_MS = parseInt(process.env.FELICITY_SNAPSHOT_MS ?? "300000", 10);
+const POLL_MS      = parseInt(process.env.FELICITY_POLL_MS      ?? "30000",  10);
+const TELEMETRY_MS = parseInt(process.env.FELICITY_TELEMETRY_MS ?? "300000", 10);
 
 const snapshotEmitter = new EventEmitter();
 
@@ -69,7 +69,7 @@ function startPoller(client) {
 
   tick();
   setInterval(tick, POLL_MS);
-  setInterval(_emitSnapshot, SNAPSHOT_MS);
+  setInterval(_emitSnapshot, TELEMETRY_MS);
 }
 
 module.exports = { startPoller, readState, snapshotEmitter };

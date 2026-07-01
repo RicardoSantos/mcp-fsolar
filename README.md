@@ -297,6 +297,7 @@ startPoller(client)
 | `FELICITY_PORT` | No | `3010` | HTTP server port |
 | `FELICITY_API_KEY` | No | — | If set, all REST requests must supply `Authorization: Bearer <key>` or `X-API-Key: <key>` |
 | `FELICITY_CORS_ORIGIN` | No | localhost origins only | Allowed CORS origin. Set to `*` to open fully, or an explicit origin to lock down |
+| `FELICITY_RATE_LIMIT` | No | `60` | Max REST requests per minute per IP. Set to `0` to disable |
 | `FELICITY_POLL_MS` | No | `30000` | Felicity API poll interval (ms) |
 | `FELICITY_TELEMETRY_MS` | No | `300000` | Snapshot emitter / webhook interval (ms) |
 | `FELICITY_SNAPSHOT_ENABLED` | No | `true` | Enable background snapshot store |

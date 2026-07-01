@@ -13,10 +13,11 @@
  *   claude mcp add felicity --transport sse http://localhost:3010/sse
  */
 
-const http = require("http");
-const fs   = require("fs");
-const path = require("path");
-const os   = require("os");
+const http   = require("http");
+const crypto = require("crypto");
+const fs     = require("fs");
+const path   = require("path");
+const os     = require("os");
 const { McpServer }           = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -45,11 +46,12 @@ function loadEnv() {
 }
 loadEnv();
 
-const PORT          = parseInt(process.env.FELICITY_PORT    ?? "3010",  10);
-const POLL_MS       = parseInt(process.env.FELICITY_POLL_MS ?? "30000", 10);
+const PORT          = parseInt(process.env.FELICITY_PORT       ?? "3010",  10);
+const POLL_MS       = parseInt(process.env.FELICITY_POLL_MS    ?? "30000", 10);
 const MAX_BODY_SIZE = 65_536; // 64 KB
-const API_KEY       = process.env.FELICITY_API_KEY   || null;
-const CORS_ORIGIN   = process.env.FELICITY_CORS_ORIGIN ?? null;
+const API_KEY       = process.env.FELICITY_API_KEY             || null;
+const CORS_ORIGIN   = process.env.FELICITY_CORS_ORIGIN         ?? null;
+const RATE_LIMIT    = parseInt(process.env.FELICITY_RATE_LIMIT ?? "60",   10); // req/min per IP, 0 = disabled
 
 // Reflect the request Origin only when it is a localhost origin (any port).
 // Set FELICITY_CORS_ORIGIN=* to open fully, or to a specific origin to lock it down.
@@ -64,15 +66,45 @@ function getAllowedOrigin(req) {
   return null;
 }
 
+// HMAC-then-timingSafeEqual: normalises both sides to 32 bytes before comparing,
+// eliminating length-based and character-by-character timing leaks.
+function _hmac(s) {
+  return crypto.createHmac("sha256", "felicity-key-cmp").update(s).digest();
+}
+
 // Returns false and sends 401 when FELICITY_API_KEY is set and the request
 // does not supply the matching token via Authorization: Bearer <key> or X-API-Key.
 function checkAuth(req, res) {
   if (!API_KEY) return true;
   const raw   = req.headers["authorization"] ?? req.headers["x-api-key"] ?? "";
   const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
-  if (token !== API_KEY) {
+  const valid = token.length > 0 && crypto.timingSafeEqual(_hmac(token), _hmac(API_KEY));
+  if (!valid) {
     res.writeHead(401, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "unauthorized" }));
+    return false;
+  }
+  return true;
+}
+
+// Simple token-bucket rate limiter (in-memory, per IP).
+const _rateBuckets = new Map(); // ip → { count, resetAt }
+// Purge expired buckets every 5 min to prevent unbounded memory growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, b] of _rateBuckets) if (now > b.resetAt) _rateBuckets.delete(ip);
+}, 5 * 60_000).unref();
+
+function checkRateLimit(req, res) {
+  if (!RATE_LIMIT) return true;
+  const ip  = req.socket.remoteAddress ?? "unknown";
+  const now = Date.now();
+  let b = _rateBuckets.get(ip);
+  if (!b || now > b.resetAt) { b = { count: 0, resetAt: now + 60_000 }; _rateBuckets.set(ip, b); }
+  b.count++;
+  if (b.count > RATE_LIMIT) {
+    res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(Math.ceil((b.resetAt - now) / 1000)) });
+    res.end(JSON.stringify({ error: "too many requests" }));
     return false;
   }
   return true;
@@ -244,11 +276,13 @@ const httpServer = http.createServer(async (req, res) => {
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Last-Fetched-At");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
-  // Auth check on all REST endpoints; MCP SSE/messages are exempt.
+  // Rate limit + auth on all REST endpoints; MCP SSE/messages are exempt.
   const isMcpPath = url.pathname === "/sse" || url.pathname === "/messages";
-  if (!isMcpPath && !checkAuth(req, res)) return;
+  if (!isMcpPath && (!checkRateLimit(req, res) || !checkAuth(req, res))) return;
 
   try {
     if (req.method === "GET" && url.pathname === "/batteries") {
@@ -277,9 +311,9 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/hooks") {
       const body = await readBody(req);
       try {
-        const { url: hookUrl, events, params } = JSON.parse(body);
+        const { url: hookUrl, events, secret } = JSON.parse(body);
         if (!hookUrl) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
-        const hook = hookStore.add({ url: hookUrl, events, params });
+        const hook = hookStore.add({ url: hookUrl, events, secret });
         res.writeHead(201, { "Content-Type": "application/json" });
         res.end(JSON.stringify(hook));
       } catch (e) {

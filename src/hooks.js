@@ -17,6 +17,9 @@ const { HealthStatus, HookEvent } = require("./enums");
 
 const HOOK_DELIVERY_TIMEOUT_MS = 8_000;  // per-request timeout for webhook HTTP delivery
 const DEFAULT_COOLDOWN_H       = 4;      // fallback cooldown if event is not in HOOK_COOLDOWNS_H
+const VALID_EVENTS             = new Set(Object.values(HookEvent));
+// Regex matches private/loopback hostnames to block SSRF via registered webhooks.
+const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0$|::1$)/i;
 
 // Default cooldowns in hours per event type
 const HOOK_COOLDOWNS_H = {
@@ -78,6 +81,15 @@ class HookStore {
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       throw Object.assign(new Error("webhook url must use http or https"), { statusCode: 400 });
     }
+    if (PRIVATE_HOST.test(parsed.hostname)) {
+      throw Object.assign(new Error("webhook url must not target a private address"), { statusCode: 400 });
+    }
+    if (events?.length) {
+      const unknown = events.filter((e) => !VALID_EVENTS.has(e));
+      if (unknown.length) {
+        throw Object.assign(new Error(`unknown event(s): ${unknown.join(", ")}`), { statusCode: 400 });
+      }
+    }
     const hooks = this._load();
     const id = crypto.randomBytes(4).toString("hex");
     hooks.push({ id, url, events: events ?? [], secret: secret ?? null, createdAt: new Date().toISOString() });
@@ -93,7 +105,7 @@ class HookStore {
     return true;
   }
 
-  list() { return this._load(); }
+  list() { return this._load().map(({ secret: _s, ...h }) => h); }
 
   async _deliver(hook, event, payload) {
     const body = JSON.stringify({ event, ...payload, ts: new Date().toISOString() });

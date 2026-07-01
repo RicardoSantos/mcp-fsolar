@@ -27,6 +27,7 @@ function _writeState(batteries, snapshots, health) {
       null, 2
     ));
     fs.renameSync(tmp, _stateFile());
+    try { fs.chmodSync(_stateFile(), 0o600); } catch { /* Windows */ }
   } catch (e) {
     console.error(`[fsolar] _writeState failed: ${e.message}`);
   }

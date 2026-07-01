@@ -95,6 +95,30 @@ Use the PR template when opening a pull request — it will pre-populate the des
 
 ## Coding conventions
 
+### No magic numbers
+
+Every non-obvious numeric literal must be a named constant. "Non-obvious" means a reader would have to know the hardware spec, algorithm design, or protocol to understand the value without the name.
+
+```js
+// ✗ wrong
+.filter((t) => !isNaN(t) && t < 200)
+if (totalPowerW < -100) { ... }
+const batLastN = batSnaps.slice(-3);
+
+// ✓ correct
+.filter((t) => !isNaN(t) && t < TEMP_SENTINEL_MAX_C)
+if (totalPowerW < -MIN_ACTIVE_DISCHARGE_W) { ... }
+const batLastN = batSnaps.slice(-OUTLIER_SNAP_WINDOW);
+```
+
+Numbers that are fine as literals: `0`, `1` (index/offset arithmetic), `100` (percentage denominator), `1000` (W→kW unit conversion), `2` (median index), `10`/`/ 10` (one-decimal rounding). These are universally understood and naming them adds noise.
+
+When adding a named number constant:
+
+1. Define it at the top of the file where it is used, with a `// unit — reason` comment.
+2. Export it from the module if it is useful to callers (e.g. thresholds they may want to compare against).
+3. Add a row to the relevant table in `docs/ALGORITHMS.md` if it affects observable behaviour.
+
 ### No magic strings
 
 All discriminant string values must be referenced through the enums in `src/enums.js` — never as bare string literals. The same rule applies to any new discriminant you introduce.

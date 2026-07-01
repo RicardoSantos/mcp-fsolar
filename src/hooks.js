@@ -15,6 +15,9 @@ const {
 } = require("./compute");
 const { HealthStatus, HookEvent } = require("./enums");
 
+const HOOK_DELIVERY_TIMEOUT_MS = 8_000;  // per-request timeout for webhook HTTP delivery
+const DEFAULT_COOLDOWN_H       = 4;      // fallback cooldown if event is not in HOOK_COOLDOWNS_H
+
 // Default cooldowns in hours per event type
 const HOOK_COOLDOWNS_H = {
   [HookEvent.CELL_DELTA_CRIT]: 1,
@@ -95,7 +98,7 @@ class HookStore {
         res.resume();
         res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode }));
       });
-      req.setTimeout(8_000, () => { req.destroy(); resolve({ ok: false, status: 0 }); });
+      req.setTimeout(HOOK_DELIVERY_TIMEOUT_MS, () => { req.destroy(); resolve({ ok: false, status: 0 }); });
       req.on("error", () => resolve({ ok: false, status: 0 }));
       req.write(body);
       req.end();
@@ -126,7 +129,7 @@ class HookStore {
       for (const c of checks) {
         if (!c.match) continue;
         const key = `${bat.sn}:${c.event}`;
-        const cooldownH = HOOK_COOLDOWNS_H[c.event] ?? 4;
+        const cooldownH = HOOK_COOLDOWNS_H[c.event] ?? DEFAULT_COOLDOWN_H;
         if (cooldowns[key] && now - cooldowns[key] < cooldownH * 3_600_000) continue;
         cooldowns[key] = now;
         changed = true;

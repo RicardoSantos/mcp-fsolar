@@ -315,6 +315,65 @@ The receiver maps the `event` field to the appropriate notification call. This e
 
 ---
 
+## Named constants reference
+
+All non-obvious numeric literals in the package are named constants. This table is the authoritative reference; the source of truth is the constant definition in `src/`.
+
+### Hardware — `src/battery.js`
+
+| Constant | Value | Unit | Meaning |
+|---|---|---|---|
+| `BMS_CHARGING_REG` | `1` | register | `bmsChargingState` value → charging |
+| `BMS_DISCHARGING_REG` | `2` | register | `bmsChargingState` value → discharging |
+| `BMS_BALANCING_BIT` | `64` | bitmask | Bit 6 of `bmsState` — BMS is actively balancing cells |
+| `CELL_COUNT` | `16` | cells | Total cells per pack (4 modules × 4 cells) |
+| `MODULE_COUNT` | `4` | — | Modules per pack |
+| `CELLS_PER_MODULE` | `4` | cells | Cells per module |
+| `DEFAULT_CAPACITY_AH` | `314` | Ah | Fallback pack capacity when the API omits `battCapacity` |
+| `TEMP_SENTINEL_MAX_C` | `200` | °C | Felicity outputs 3 276.7 for missing temp sensors; readings ≥ 200 °C are discarded |
+
+### `computeHealth` — `src/compute.js`
+
+| Constant | Value | Unit | Meaning |
+|---|---|---|---|
+| `HEALTH_CELL_DELTA_WARN` | `120` | mV | Cell delta warn threshold |
+| `HEALTH_CELL_DELTA_CRIT` | `200` | mV | Cell delta critical threshold |
+| `HEALTH_TEMP_WARN` | `40` | °C | Temperature warn threshold |
+| `HEALTH_TEMP_CRIT` | `50` | °C | Temperature critical threshold |
+| `HEALTH_OUTLIER_MV` | `35` | mV | A cell this far below pack avg is a candidate outlier |
+| `HEALTH_SOH_WARN` | `90` | % | SOH warn threshold |
+| `OUTLIER_SNAP_WINDOW` | `3` | snapshots | Number of recent snapshots checked to confirm a persistent outlier |
+| `CRATE_SNAP_WINDOW` | `6` | snapshots | Number of recent snapshots averaged for C-rate estimate |
+| `NOMINAL_VOLTAGE_V` | `48` | V | LiFePO4 4S nominal voltage — fallback when live voltage is unavailable |
+| `MIN_POWER_FOR_CRATE_W` | `50` | W | Minimum \|power\| for a snapshot to contribute to C-rate average |
+| `DISCHARGE_DELTA_MAX_MV` | `30` | mV | Max cellDelta for a snapshot to qualify for discharge-delta median |
+| `DISCHARGE_DELTA_MIN_SNAPS` | `3` | snapshots | Min qualifying snapshots required to compute discharge-delta median |
+
+### `computeAutonomy` — `src/compute.js`
+
+| Constant | Value | Unit | Meaning |
+|---|---|---|---|
+| `MIN_ACTIVE_DISCHARGE_W` | `100` | W | Fleet \|power\| must exceed this to use live rate instead of historical average |
+| `MIN_ACTIVE_CHARGE_W` | `50` | W | Fleet power must exceed this to compute `estimatedHoursToFull` |
+| `MIN_ACTIVE_BAT_W` | `50` | W | Per-battery \|power\| must exceed this to use live rate instead of fleet-average |
+| `MIN_DISCHARGE_RATE_KW` | `0.2` | kW | Clamp floor for discharge rate estimate |
+| `MAX_DISCHARGE_RATE_KW` | `24` | kW | Clamp ceiling for discharge rate estimate |
+
+### Balance trend — `src/store.js`
+
+| Constant | Value | Unit | Meaning |
+|---|---|---|---|
+| `TREND_STABLE_MV` | `3` | mV | Dead-band: if delta change is within ±3 mV the trend is `"stable"` |
+
+### Webhook delivery — `src/hooks.js`
+
+| Constant | Value | Unit | Meaning |
+|---|---|---|---|
+| `HOOK_DELIVERY_TIMEOUT_MS` | `8 000` | ms | Per-request timeout for HTTP webhook delivery |
+| `DEFAULT_COOLDOWN_H` | `4` | h | Cooldown applied when an event is not listed in `HOOK_COOLDOWNS_H` |
+
+---
+
 ## String enums
 
 All discriminant strings used in public APIs are exported as frozen objects from the package. Use the constants instead of bare strings to get autocomplete and catch typos at compile time.

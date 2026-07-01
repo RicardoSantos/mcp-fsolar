@@ -6,6 +6,8 @@ const path = require("path");
 const { clamp, pickSnapshotFields } = require("./helpers");
 const { TrendDirection }            = require("./enums");
 
+const TREND_STABLE_MV = 3;  // dead-band: delta change within ±3 mV is classified as "stable"
+
 // ── Snapshot config ───────────────────────────────────────────────────────────
 
 const SNAPSHOT_MS_DEFAULT   = 10 * 60 * 1000;
@@ -90,7 +92,7 @@ class BatterySnapshotStore extends SnapshotStore {
       else break;
     }
     return {
-      direction:              change < -3 ? TrendDirection.IMPROVING : change > 3 ? TrendDirection.DEGRADING : TrendDirection.STABLE,
+      direction:              change < -TREND_STABLE_MV ? TrendDirection.IMPROVING : change > TREND_STABLE_MV ? TrendDirection.DEGRADING : TrendDirection.STABLE,
       deltaChange:            change,
       history:                deltas,
       balancingCount:         history.filter((b) => b.isBalancing).length,

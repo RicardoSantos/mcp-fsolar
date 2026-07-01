@@ -40,6 +40,7 @@ const { HealthStatus, TrendDirection }         = require("./src/enums");
 const { createLogger, logger: _defaultLogger } = require("./src/logger");
 const { makeGetAllowedOrigin, makeCheckAuth,
         makeRateLimit, readBody }              = require("./src/middleware");
+const { AppError }                             = require("./src/errors");
 const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
                      HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_NOT_FOUND,
                      HTTP_STATUS_PAYLOAD_TOO_LARGE,
@@ -60,12 +61,11 @@ function loadEnv() {
     try {
       fs.readFileSync(path.join(dir, ".env"), "utf8").split("\n").forEach((line) => {
         const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#")) return; // skip blanks and comments
+        if (!trimmed || trimmed.startsWith("#")) return;
         const eq = trimmed.indexOf("=");
         if (eq > 0) {
           const k = trimmed.slice(0, eq).trim();
           let v   = trimmed.slice(eq + 1).trim();
-          // strip surrounding single or double quotes
           if ((v.startsWith("'") && v.endsWith("'")) || (v.startsWith('"') && v.endsWith('"'))) {
             v = v.slice(1, -1);
           }
@@ -89,6 +89,23 @@ function _snapshotFile(store) {
 // Wraps a string into the MCP tool content response shape.
 const textContent = (text) => ({ content: [{ type: "text", text }] });
 
+// Write a JSON response with the given status code.
+function sendJson(res, status, data) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(data));
+}
+
+// Write an error response derived from an Error or AppError.
+// No-ops if headers have already been sent (e.g. by handlePostMessage).
+function sendError(res, err) {
+  if (res.headersSent) return;
+  const status  = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
+  const message = status === HTTP_STATUS_PAYLOAD_TOO_LARGE
+    ? "request body too large"
+    : (err.message || "internal server error");
+  sendJson(res, status, { error: message });
+}
+
 // ── Server factory ────────────────────────────────────────────────────────────
 
 /**
@@ -104,7 +121,7 @@ const textContent = (text) => ({ content: [{ type: "text", text }] });
  * @param {object}  [opts]
  * @param {string}  [opts.apiKey]      HMAC-SHA256 bearer token required on REST endpoints.
  * @param {number}  [opts.rateLimit]   Max requests per minute per IP (0 = off). Default 60.
- * @param {string}  [opts.corsOrigin]   Fixed CORS origin (default: reflect localhost only).
+ * @param {string}  [opts.corsOrigin]  Fixed CORS origin (default: reflect localhost only).
  * @param {boolean} [opts.trustProxy]  Trust X-Forwarded-For for rate-limit IP. Only set when behind a trusted proxy.
  * @param {number}  [opts.port]        Port hint used in URL construction. Default 3010.
  * @returns {{ httpServer: import('http').Server, mcp: object, setPollError(err): void, close(): Promise<void> }}
@@ -129,9 +146,9 @@ function createServer(client, opts = {}) {
 
   // ── Middleware ────────────────────────────────────────────────────────────
 
-  const getAllowedOrigin             = makeGetAllowedOrigin(serverCorsOrigin);
+  const getAllowedOrigin              = makeGetAllowedOrigin(serverCorsOrigin);
   const checkAuth                    = makeCheckAuth(serverApiKey);
-  const { checkRateLimit, stopPurge} = makeRateLimit(serverRateLimit, serverTrustProxy);
+  const { checkRateLimit, stopPurge } = makeRateLimit(serverRateLimit, serverTrustProxy);
 
   // ── MCP tools ─────────────────────────────────────────────────────────────
 
@@ -323,93 +340,87 @@ function createServer(client, opts = {}) {
     res.setHeader("Cache-Control", "no-store");
     if (req.method === "OPTIONS") { res.writeHead(HTTP_STATUS_NO_CONTENT); res.end(); return; }
 
-    // /health is exempt from rate-limiting and auth (used by k8s probes, load balancers).
-    // /sse is exempt from auth only (SSE clients cannot easily send headers; rate-limited).
-    // All other paths are rate-limited and auth-guarded.
-    const isPublicPath = url.pathname === "/health" || url.pathname === "/sse";
-    if (!isPublicPath && !checkRateLimit(req, res)) return;
+    // /health: exempt from rate-limiting and auth (used by k8s probes, load balancers).
+    // /sse:    exempt from auth only (SSE clients cannot easily send headers; rate-limited).
+    // others:  rate-limited and auth-guarded.
+    if (url.pathname !== "/health" && !checkRateLimit(req, res)) return;
     if (url.pathname !== "/health" && url.pathname !== "/sse" && !checkAuth(req, res)) return;
 
     try {
+      // ── Health probe ──────────────────────────────────────────────────────
+
       if (req.method === "GET" && url.pathname === "/health") {
-        const httpStatus = pollError ? HTTP_STATUS_SERVICE_UNAVAILABLE : HTTP_STATUS_OK;
-        res.writeHead(httpStatus, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: !pollError, uptime: Math.floor(process.uptime()), version, pollError: pollError ?? null }));
+        const status = pollError ? HTTP_STATUS_SERVICE_UNAVAILABLE : HTTP_STATUS_OK;
+        sendJson(res, status, { ok: !pollError, uptime: Math.floor(process.uptime()), version, pollError: pollError ?? null });
         return;
       }
 
+      // ── Battery data ──────────────────────────────────────────────────────
+
       if (req.method === "GET" && url.pathname === "/batteries") {
         const result = await client.getBatteries();
-        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ...result, pollError }));
+        sendJson(res, HTTP_STATUS_OK, { ...result, pollError });
         return;
       }
 
       if (req.method === "GET" && url.pathname.startsWith("/batteries/")) {
         const id     = url.pathname.slice("/batteries/".length);
         const result = await client.getBattery(id);
-        if (!result.battery) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "not found" })); return; }
-        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
+        if (!result.battery) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+        sendJson(res, HTTP_STATUS_OK, result);
         return;
       }
 
-      // ── Webhook subscriptions ───────────────────────────────────────────────
+      // ── Webhook subscriptions ─────────────────────────────────────────────
 
       if (req.method === "GET" && url.pathname === "/hooks") {
-        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(serverHookStore.list()));
+        sendJson(res, HTTP_STATUS_OK, serverHookStore.list());
         return;
       }
 
       if (req.method === "POST" && url.pathname === "/hooks") {
         const body = await readBody(req);
-        try {
-          const { url: hookUrl, events, secret } = JSON.parse(body);
-          if (!hookUrl) { res.writeHead(HTTP_STATUS_BAD_REQUEST, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
-          const hook = serverHookStore.add({ url: hookUrl, events, secret });
-          res.writeHead(HTTP_STATUS_CREATED, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(hook));
-        } catch (e) {
-          const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
-          res.writeHead(status, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : (e.message || "invalid request") }));
-        }
+        let parsed;
+        try   { parsed = JSON.parse(body); }
+        catch { throw new AppError("invalid JSON body", HTTP_STATUS_BAD_REQUEST); }
+        const { url: hookUrl, events, secret } = parsed;
+        if (!hookUrl) { sendJson(res, HTTP_STATUS_BAD_REQUEST, { error: "url required" }); return; }
+        sendJson(res, HTTP_STATUS_CREATED, serverHookStore.add({ url: hookUrl, events, secret }));
         return;
       }
 
       if (req.method === "GET" && url.pathname.startsWith("/hooks/") && url.pathname.endsWith("/deliveries")) {
         const id    = url.pathname.slice("/hooks/".length, -"/deliveries".length);
         const found = serverHookStore.list().some((h) => h.id === id);
-        if (!found) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "hook not found" })); return; }
-        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(serverHookStore.getDeliveries(id)));
+        if (!found) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "hook not found" }); return; }
+        sendJson(res, HTTP_STATUS_OK, serverHookStore.getDeliveries(id));
         return;
       }
 
       if (req.method === "DELETE" && url.pathname.startsWith("/hooks/")) {
         const id = url.pathname.slice("/hooks/".length);
         const ok = serverHookStore.remove(id);
-        res.writeHead(ok ? HTTP_STATUS_OK : HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok }));
+        sendJson(res, ok ? HTTP_STATUS_OK : HTTP_STATUS_NOT_FOUND, { ok });
         return;
       }
 
-      // ── Snapshot download ───────────────────────────────────────────────────
+      // ── Snapshot download ─────────────────────────────────────────────────
 
       if (req.method === "GET" && url.pathname.startsWith("/snapshots/")) {
         const store = url.pathname.slice("/snapshots/".length);
         const file  = _snapshotFile(store);
-        if (!file) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or state` })); return; }
+        if (!file) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: `unknown store '${store}' — use intraday, daily or state` }); return; }
         try {
           const data = await fs.promises.readFile(file, "utf8");
           res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${store}.json"` });
           res.end(data);
-        } catch { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "no data yet" })); }
+        } catch {
+          sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "no data yet" });
+        }
         return;
       }
 
-      // ── Snapshot reset ──────────────────────────────────────────────────────
+      // ── Snapshot reset ────────────────────────────────────────────────────
 
       if (req.method === "DELETE" && url.pathname.startsWith("/snapshots/")) {
         const store    = url.pathname.slice("/snapshots/".length);
@@ -417,14 +428,18 @@ function createServer(client, opts = {}) {
         const toDelete  = store === "all"
           ? deletable.map(_snapshotFile).filter(Boolean)
           : deletable.includes(store) ? [_snapshotFile(store)] : [];
-        if (!toDelete.length) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or all` })); return; }
+        if (!toDelete.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: `unknown store '${store}' — use intraday, daily or all` }); return; }
         const deleted = [];
-        for (const f of toDelete) { try { fs.unlinkSync(f); deleted.push(path.basename(f)); } catch { /* already gone */ } }
+        for (const f of toDelete) {
+          try { await fs.promises.unlink(f); deleted.push(path.basename(f)); }
+          catch { /* already gone */ }
+        }
         serverLogger.info("snapshots reset", { deleted });
-        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, deleted }));
+        sendJson(res, HTTP_STATUS_OK, { ok: true, deleted });
         return;
       }
+
+      // ── MCP over SSE ──────────────────────────────────────────────────────
 
       if (req.method === "GET" && url.pathname === "/sse") {
         const transport = new SSEServerTransport("/messages", res);
@@ -438,27 +453,18 @@ function createServer(client, opts = {}) {
         const sessionId = url.searchParams.get("sessionId");
         const transport = sseTransports.get(sessionId);
         if (!transport) { res.writeHead(HTTP_STATUS_NOT_FOUND); res.end("Session not found"); return; }
-        try {
-          const body = await readBody(req);
-          await transport.handlePostMessage(req, res, JSON.parse(body));
-        } catch (e) {
-          if (!res.headersSent) {
-            const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
-            res.writeHead(status, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : "Invalid request" }));
-          }
-        }
+        const body = await readBody(req);
+        let parsed;
+        try   { parsed = JSON.parse(body); }
+        catch { throw new AppError("invalid JSON body", HTTP_STATUS_BAD_REQUEST); }
+        await transport.handlePostMessage(req, res, parsed);
         return;
       }
 
       res.writeHead(HTTP_STATUS_NOT_FOUND); res.end("Not found");
     } catch (err) {
       serverLogger.error("request error", { method: req.method, path: url.pathname, err: err.message });
-      if (!res.headersSent) {
-        const status = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
-        res.writeHead(status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : err.message }));
-      }
+      sendError(res, err);
     }
   });
 

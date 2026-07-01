@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.13] — 2026-07-01
+
+### Changed
+- `src/enums.js` (new): `ChargingState`, `HealthStatus`, `TrendDirection`, `HookEvent` — all discriminant strings now exported as frozen objects; bare string literals removed from `battery.js`, `compute.js`, `store.js`, `hooks.js`, `server.js`
+- `src/battery.js`, `src/compute.js`, `src/hooks.js`, `src/store.js`: all non-obvious numeric literals replaced with named constants (`BMS_BALANCING_BIT`, `CELL_COUNT`, `OUTLIER_SNAP_WINDOW`, `TREND_STABLE_MV`, `HOOK_DELIVERY_TIMEOUT_MS`, etc.)
+- `index.d.ts`: interface fields (`chargingState`, `direction`, `cellDeltaStatus`, etc.) now reference enum types instead of inline string unions
+- `CONTRIBUTING.md`: no-magic-strings and no-magic-numbers rules added with examples, exceptions, and checklists
+- `docs/ALGORITHMS.md`: string enums reference and named constants reference tables added
+
 ## [1.0.12] — 2026-07-01
 
 ### Changed

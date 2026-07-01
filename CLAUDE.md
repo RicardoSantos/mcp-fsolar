@@ -79,7 +79,7 @@ startPoller(client)  // begins background health computation and snapshot storag
 ```js
 const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
                      HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_UNAUTHORIZED,
-                     HTTP_STATUS_NOT_FOUND, HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE,
+                     HTTP_STATUS_NOT_FOUND, HTTP_STATUS_PAYLOAD_TOO_LARGE,
                      HTTP_STATUS_TOO_MANY_REQUESTS, HTTP_STATUS_INTERNAL_SERVER_ERROR,
                      HTTP_STATUS_SERVICE_UNAVAILABLE } } = require("node:http2");
 
@@ -91,6 +91,8 @@ const status = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
 // Bad — never write raw numbers
 res.writeHead(200, ...);
 throw new AppError("not found", 404);
+
+// Note: 413 is HTTP_STATUS_PAYLOAD_TOO_LARGE (NOT REQUEST_ENTITY_TOO_LARGE, which is undefined in Node.js)
 ```
 
 ## Key conventions

@@ -42,6 +42,7 @@ const { makeGetAllowedOrigin, makeCheckAuth,
         makeRateLimit, readBody }              = require("./src/middleware");
 const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
                      HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_NOT_FOUND,
+                     HTTP_STATUS_PAYLOAD_TOO_LARGE,
                      HTTP_STATUS_INTERNAL_SERVER_ERROR,
                      HTTP_STATUS_SERVICE_UNAVAILABLE } }  = require("node:http2");
 const { version }                              = require("./package.json");
@@ -372,7 +373,7 @@ function createServer(client, opts = {}) {
         } catch (e) {
           const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
           res.writeHead(status, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: status === 413 ? "request body too large" : (e.message || "invalid request") }));
+          res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : (e.message || "invalid request") }));
         }
         return;
       }
@@ -444,7 +445,7 @@ function createServer(client, opts = {}) {
           if (!res.headersSent) {
             const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
             res.writeHead(status, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: status === 413 ? "request body too large" : "Invalid request" }));
+            res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : "Invalid request" }));
           }
         }
         return;
@@ -456,7 +457,7 @@ function createServer(client, opts = {}) {
       if (!res.headersSent) {
         const status = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
         res.writeHead(status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: status === 413 ? "request body too large" : err.message }));
+        res.end(JSON.stringify({ error: status === HTTP_STATUS_PAYLOAD_TOO_LARGE ? "request body too large" : err.message }));
       }
     }
   });

@@ -2,7 +2,7 @@
 
 const crypto = require("crypto");
 const { constants: { HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_TOO_MANY_REQUESTS,
-                     HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE } } = require("node:http2");
+                     HTTP_STATUS_PAYLOAD_TOO_LARGE } } = require("node:http2");
 const { AppError } = require("./errors");
 
 const MAX_BODY_SIZE = 65_536; // 64 KB
@@ -93,7 +93,7 @@ function readBody(req) {
       if (size > MAX_BODY_SIZE) {
         done = true;
         req.resume();
-        req.once("end", () => reject(new AppError("Request body too large", HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE)));
+        req.once("end", () => reject(new AppError("Request body too large", HTTP_STATUS_PAYLOAD_TOO_LARGE)));
         return;
       }
       body += chunk;

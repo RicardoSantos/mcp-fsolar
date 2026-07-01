@@ -13,7 +13,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const http   = require("node:http");
-const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE } } = require("node:http2");
+const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_PAYLOAD_TOO_LARGE } } = require("node:http2");
 
 const PORT    = parseInt(process.env.FELICITY_PORT ?? "3010", 10);
 const API_KEY = process.env.FELICITY_API_KEY ?? null;
@@ -245,7 +245,7 @@ describe("request size limits", () => {
     });
     // Server may respond 413, or close the connection (status 0 = socket hang-up).
     // Both mean the request was rejected. The key assertion: no new hook was created.
-    assert.ok(r.status === HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE || r.status === 0,
+    assert.ok(r.status === HTTP_STATUS_PAYLOAD_TOO_LARGE || r.status === 0,
       `expected rejection (413 or connection reset) for oversized body, got ${r.status}`);
     const hooksAfter = (await req("GET", "/hooks", { headers: authHeaders() })).body ?? [];
     assert.equal(hooksAfter.length, hooksBefore.length, "oversized body must not create a new hook");

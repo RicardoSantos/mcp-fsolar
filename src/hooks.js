@@ -30,10 +30,12 @@ const VALID_EVENTS             = new Set(Object.values(HookEvent));
 const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0$|::1$|::ffff:|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i;
 
 function _isPrivateHost(hostname) {
-  if (PRIVATE_HOST.test(hostname)) return true;
-  if (/^0x[0-9a-f]+$/i.test(hostname)) return true;  // hex IPv4: 0x7f000001
-  if (/^0\d/.test(hostname)) return true;              // octal IPv4: 0177.0.0.1
-  if (/^\d+$/.test(hostname)) return true;             // decimal IPv4: 2130706433
+  // WHATWG URL parser wraps IPv6 in brackets: "[::1]" → strip them before matching
+  const h = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  if (PRIVATE_HOST.test(h)) return true;
+  if (/^0x[0-9a-f]+$/i.test(h)) return true;  // hex IPv4: 0x7f000001
+  if (/^0\d/.test(h)) return true;              // octal IPv4: 0177.0.0.1
+  if (/^\d+$/.test(h)) return true;             // decimal IPv4: 2130706433
   return false;
 }
 

@@ -22,7 +22,7 @@
   "scripts": {
     "start": "node server.js",
     "probe": "node probe.js",
-    "test": "node --test test/cache.test.js test/snapshot.test.js test/transform.test.js test/client.test.js",
+    "test": "node --test test/cache.test.js test/snapshot.test.js test/transform.test.js test/client.test.js test/errors.test.js test/logger.test.js test/helpers.test.js test/middleware.test.js test/compute.test.js test/hooks.test.js",
     "test:security": "node --test test/security.test.js",
     "setup": "git config core.hooksPath .githooks"
   },

@@ -1,6 +1,6 @@
 {
   "name": "fsolar-mcp",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Felicity Solar battery MCP server + REST API — exposes live battery data to Claude Code and any MCP client",
   "main": "index.js",
   "types": "index.d.ts",
@@ -21,7 +21,8 @@
   "scripts": {
     "start": "node server.js",
     "probe": "node probe.js",
-    "test": "node --test",
+    "test": "node --test test/cache.test.js test/snapshot.test.js test/transform.test.js test/client.test.js",
+    "test:security": "node --test test/security.test.js",
     "setup": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

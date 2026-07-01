@@ -10,9 +10,10 @@
  * Set FELICITY_API_KEY in both the server env and this script's env.
  */
 
-const { describe, it, before } = require("node:test");
+const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const http   = require("node:http");
+const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE } } = require("node:http2");
 
 const PORT    = parseInt(process.env.FELICITY_PORT ?? "3010", 10);
 const API_KEY = process.env.FELICITY_API_KEY ?? null;
@@ -57,33 +58,33 @@ function authHeaders() {
 describe("authentication", () => {
   it("no API key set → GET /batteries returns 200", { skip: !!API_KEY }, async () => {
     const r = await req("GET", "/batteries");
-    assert.equal(r.status, 200);
+    assert.equal(r.status, HTTP_STATUS_OK);
   });
 
   it("wrong key → 401", { skip: !API_KEY }, async () => {
     const r = await req("GET", "/batteries", { headers: { Authorization: "Bearer wrongkey" } });
-    assert.equal(r.status, 401);
+    assert.equal(r.status, HTTP_STATUS_UNAUTHORIZED);
     assert.ok(r.body?.error, "should return error field");
   });
 
   it("missing key → 401", { skip: !API_KEY }, async () => {
     const r = await req("GET", "/batteries");
-    assert.equal(r.status, 401);
+    assert.equal(r.status, HTTP_STATUS_UNAUTHORIZED);
   });
 
   it("correct key via Authorization: Bearer → 200", { skip: !API_KEY }, async () => {
     const r = await req("GET", "/batteries", { headers: { Authorization: `Bearer ${API_KEY}` } });
-    assert.notEqual(r.status, 401, "valid key should not be rejected");
+    assert.notEqual(r.status, HTTP_STATUS_UNAUTHORIZED, "valid key should not be rejected");
   });
 
   it("correct key via X-API-Key → 200", { skip: !API_KEY }, async () => {
     const r = await req("GET", "/batteries", { headers: { "X-API-Key": API_KEY } });
-    assert.notEqual(r.status, 401, "X-API-Key header should be accepted");
+    assert.notEqual(r.status, HTTP_STATUS_UNAUTHORIZED, "X-API-Key header should be accepted");
   });
 
   it("key embedded in URL query string → 401 (not supported)", { skip: !API_KEY }, async () => {
     const r = await req("GET", `/batteries?key=${API_KEY}`);
-    assert.equal(r.status, 401, "key in URL must not bypass auth");
+    assert.equal(r.status, HTTP_STATUS_UNAUTHORIZED, "key in URL must not bypass auth");
   });
 
   it("API key timing: wrong key responds in similar time to correct key", { skip: !API_KEY }, async () => {
@@ -146,7 +147,7 @@ describe("CORS", () => {
 
   it("OPTIONS preflight from localhost → 204 with allow header", async () => {
     const r = await req("OPTIONS", "/batteries", { headers: { Origin: "http://localhost:4000", "Access-Control-Request-Method": "GET" } });
-    assert.equal(r.status, 204);
+    assert.equal(r.status, HTTP_STATUS_NO_CONTENT);
     assert.equal(r.headers["access-control-allow-origin"], "http://localhost:4000");
   });
 
@@ -171,7 +172,7 @@ describe("path traversal", () => {
     it(`/batteries/${id} → 404 not found (not a file read)`, async () => {
       const r = await req("GET", `/batteries/${encodeURIComponent(id)}`, { headers: authHeaders() });
       // Must not leak file contents; 404 or 200 with "not found" battery is both acceptable
-      assert.ok(r.status === 404 || (r.status === 200 && !r.raw?.includes("root:")),
+      assert.ok(r.status === HTTP_STATUS_NOT_FOUND || (r.status === HTTP_STATUS_OK && !r.raw?.includes("root:")),
         `path traversal must not expose file contents (got ${r.status})`);
     });
   }
@@ -186,7 +187,7 @@ describe("path traversal", () => {
   for (const store of badStores) {
     it(`GET /snapshots/${store} → 404 unknown store`, async () => {
       const r = await req("GET", `/snapshots/${store}`, { headers: authHeaders() });
-      assert.equal(r.status, 404);
+      assert.equal(r.status, HTTP_STATUS_NOT_FOUND);
       assert.ok(!r.raw?.includes("root:"), "must not expose file contents");
     });
   }
@@ -208,13 +209,13 @@ describe("webhook URL validation", () => {
   for (const { url, label } of bad) {
     it(`rejects ${label}`, async () => {
       const r = await req("POST", "/hooks", { headers: authHeaders(), body: { url } });
-      assert.equal(r.status, 400, `expected 400 for "${url}" but got ${r.status}`);
+      assert.equal(r.status, HTTP_STATUS_BAD_REQUEST, `expected 400 for "${url}" but got ${r.status}`);
     });
   }
 
   it("accepts valid https URL", async () => {
     const r = await req("POST", "/hooks", { headers: authHeaders(), body: { url: "https://webhook.example.com/felicity" } });
-    assert.ok(r.status === 201 || r.status === 200, `expected 201 for valid https URL, got ${r.status}`);
+    assert.ok(r.status === HTTP_STATUS_CREATED || r.status === HTTP_STATUS_OK, `expected 201 for valid https URL, got ${r.status}`);
     // clean up
     if (r.body) {
       const id = typeof r.body === "string" ? r.body.replace(/"/g, "") : r.body.id;
@@ -224,7 +225,7 @@ describe("webhook URL validation", () => {
 
   it("accepts valid http URL", async () => {
     const r = await req("POST", "/hooks", { headers: authHeaders(), body: { url: "http://webhook.example.com/felicity" } });
-    assert.ok(r.status === 201 || r.status === 200, `expected 201 for valid http URL, got ${r.status}`);
+    assert.ok(r.status === HTTP_STATUS_CREATED || r.status === HTTP_STATUS_OK, `expected 201 for valid http URL, got ${r.status}`);
     if (r.body) {
       const id = typeof r.body === "string" ? r.body.replace(/"/g, "") : r.body.id;
       if (id) await req("DELETE", `/hooks/${id}`, { headers: authHeaders() });
@@ -244,7 +245,7 @@ describe("request size limits", () => {
     });
     // Server may respond 413, or close the connection (status 0 = socket hang-up).
     // Both mean the request was rejected. The key assertion: no new hook was created.
-    assert.ok(r.status === 413 || r.status === 0,
+    assert.ok(r.status === HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE || r.status === 0,
       `expected rejection (413 or connection reset) for oversized body, got ${r.status}`);
     const hooksAfter = (await req("GET", "/hooks", { headers: authHeaders() })).body ?? [];
     assert.equal(hooksAfter.length, hooksBefore.length, "oversized body must not create a new hook");
@@ -277,9 +278,9 @@ describe("DELETE /hooks/:id", () => {
 
   it("deleting existing hook → 200", async () => {
     const add = await req("POST", "/hooks", { headers: authHeaders(), body: { url: "https://example.com/wh" } });
-    assert.ok(add.status === 200 || add.status === 201);
+    assert.ok(add.status === HTTP_STATUS_OK || add.status === HTTP_STATUS_CREATED);
     const id = typeof add.body === "string" ? add.body.replace(/"/g, "") : add.body.id ?? add.body;
     const del = await req("DELETE", `/hooks/${id}`, { headers: authHeaders() });
-    assert.equal(del.status, 200);
+    assert.equal(del.status, HTTP_STATUS_OK);
   });
 });

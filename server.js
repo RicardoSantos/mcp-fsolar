@@ -40,6 +40,10 @@ const { HealthStatus, TrendDirection }         = require("./src/enums");
 const { createLogger, logger: _defaultLogger } = require("./src/logger");
 const { makeGetAllowedOrigin, makeCheckAuth,
         makeRateLimit, readBody }              = require("./src/middleware");
+const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
+                     HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_NOT_FOUND,
+                     HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                     HTTP_STATUS_SERVICE_UNAVAILABLE } }  = require("node:http2");
 const { version }                              = require("./package.json");
 
 // ── Mode detection ────────────────────────────────────────────────────────────
@@ -316,7 +320,7 @@ function createServer(client, opts = {}) {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "no-store");
-    if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+    if (req.method === "OPTIONS") { res.writeHead(HTTP_STATUS_NO_CONTENT); res.end(); return; }
 
     // /health is exempt from rate-limiting and auth (used by k8s probes, load balancers).
     // /sse is exempt from auth only (SSE clients cannot easily send headers; rate-limited).
@@ -327,7 +331,7 @@ function createServer(client, opts = {}) {
 
     try {
       if (req.method === "GET" && url.pathname === "/health") {
-        const httpStatus = pollError ? 503 : 200;
+        const httpStatus = pollError ? HTTP_STATUS_SERVICE_UNAVAILABLE : HTTP_STATUS_OK;
         res.writeHead(httpStatus, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: !pollError, uptime: Math.floor(process.uptime()), version, pollError: pollError ?? null }));
         return;
@@ -335,7 +339,7 @@ function createServer(client, opts = {}) {
 
       if (req.method === "GET" && url.pathname === "/batteries") {
         const result = await client.getBatteries();
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ...result, pollError }));
         return;
       }
@@ -343,8 +347,8 @@ function createServer(client, opts = {}) {
       if (req.method === "GET" && url.pathname.startsWith("/batteries/")) {
         const id     = url.pathname.slice("/batteries/".length);
         const result = await client.getBattery(id);
-        if (!result.battery) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "not found" })); return; }
-        res.writeHead(200, { "Content-Type": "application/json" });
+        if (!result.battery) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "not found" })); return; }
+        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
         return;
       }
@@ -352,7 +356,7 @@ function createServer(client, opts = {}) {
       // ── Webhook subscriptions ───────────────────────────────────────────────
 
       if (req.method === "GET" && url.pathname === "/hooks") {
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
         res.end(JSON.stringify(serverHookStore.list()));
         return;
       }
@@ -361,12 +365,12 @@ function createServer(client, opts = {}) {
         const body = await readBody(req);
         try {
           const { url: hookUrl, events, secret } = JSON.parse(body);
-          if (!hookUrl) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
+          if (!hookUrl) { res.writeHead(HTTP_STATUS_BAD_REQUEST, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "url required" })); return; }
           const hook = serverHookStore.add({ url: hookUrl, events, secret });
-          res.writeHead(201, { "Content-Type": "application/json" });
+          res.writeHead(HTTP_STATUS_CREATED, { "Content-Type": "application/json" });
           res.end(JSON.stringify(hook));
         } catch (e) {
-          const status = e.statusCode ?? 400;
+          const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
           res.writeHead(status, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: status === 413 ? "request body too large" : (e.message || "invalid request") }));
         }
@@ -376,8 +380,8 @@ function createServer(client, opts = {}) {
       if (req.method === "GET" && url.pathname.startsWith("/hooks/") && url.pathname.endsWith("/deliveries")) {
         const id    = url.pathname.slice("/hooks/".length, -"/deliveries".length);
         const found = serverHookStore.list().some((h) => h.id === id);
-        if (!found) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "hook not found" })); return; }
-        res.writeHead(200, { "Content-Type": "application/json" });
+        if (!found) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "hook not found" })); return; }
+        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
         res.end(JSON.stringify(serverHookStore.getDeliveries(id)));
         return;
       }
@@ -385,7 +389,7 @@ function createServer(client, opts = {}) {
       if (req.method === "DELETE" && url.pathname.startsWith("/hooks/")) {
         const id = url.pathname.slice("/hooks/".length);
         const ok = serverHookStore.remove(id);
-        res.writeHead(ok ? 200 : 404, { "Content-Type": "application/json" });
+        res.writeHead(ok ? HTTP_STATUS_OK : HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok }));
         return;
       }
@@ -395,12 +399,12 @@ function createServer(client, opts = {}) {
       if (req.method === "GET" && url.pathname.startsWith("/snapshots/")) {
         const store = url.pathname.slice("/snapshots/".length);
         const file  = _snapshotFile(store);
-        if (!file) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or state` })); return; }
+        if (!file) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or state` })); return; }
         try {
           const data = await fs.promises.readFile(file, "utf8");
-          res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${store}.json"` });
+          res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${store}.json"` });
           res.end(data);
-        } catch { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "no data yet" })); }
+        } catch { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "no data yet" })); }
         return;
       }
 
@@ -412,11 +416,11 @@ function createServer(client, opts = {}) {
         const toDelete  = store === "all"
           ? deletable.map(_snapshotFile).filter(Boolean)
           : deletable.includes(store) ? [_snapshotFile(store)] : [];
-        if (!toDelete.length) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or all` })); return; }
+        if (!toDelete.length) { res.writeHead(HTTP_STATUS_NOT_FOUND, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `unknown store '${store}' — use intraday, daily or all` })); return; }
         const deleted = [];
         for (const f of toDelete) { try { fs.unlinkSync(f); deleted.push(path.basename(f)); } catch { /* already gone */ } }
         serverLogger.info("snapshots reset", { deleted });
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, deleted }));
         return;
       }
@@ -432,13 +436,13 @@ function createServer(client, opts = {}) {
       if (req.method === "POST" && url.pathname === "/messages") {
         const sessionId = url.searchParams.get("sessionId");
         const transport = sseTransports.get(sessionId);
-        if (!transport) { res.writeHead(404); res.end("Session not found"); return; }
+        if (!transport) { res.writeHead(HTTP_STATUS_NOT_FOUND); res.end("Session not found"); return; }
         try {
           const body = await readBody(req);
           await transport.handlePostMessage(req, res, JSON.parse(body));
         } catch (e) {
           if (!res.headersSent) {
-            const status = e.statusCode ?? 400;
+            const status = e.statusCode ?? HTTP_STATUS_BAD_REQUEST;
             res.writeHead(status, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: status === 413 ? "request body too large" : "Invalid request" }));
           }
@@ -446,11 +450,11 @@ function createServer(client, opts = {}) {
         return;
       }
 
-      res.writeHead(404); res.end("Not found");
+      res.writeHead(HTTP_STATUS_NOT_FOUND); res.end("Not found");
     } catch (err) {
       serverLogger.error("request error", { method: req.method, path: url.pathname, err: err.message });
       if (!res.headersSent) {
-        const status = err.statusCode ?? 500;
+        const status = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: status === 413 ? "request body too large" : err.message }));
       }

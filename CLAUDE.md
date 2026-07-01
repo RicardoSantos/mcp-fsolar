@@ -34,11 +34,19 @@ FELICITY_API_KEY=secret npm run test:security
 server.js          Server factory — exports createServer() + startServer(); run with node server.js
 index.js           Public API — FelicityClient, createServer, startServer, HookStore, snapshot stores
 src/
-  hooks.js         Webhook store, SSRF validation, event delivery, per-event cooldowns
-  compute.js       Health metric derivation
-  enums.js         HealthStatus, HookEvent, TrendDirection
-  snapshot.js      Intraday + daily snapshot persistence
-  transform.js     Raw Felicity API → typed BatteryState
+  errors.js        AppError class (Error subclass with statusCode)
+  logger.js        createLogger() — injectable structured JSON logger (writes to stderr)
+  middleware.js    makeGetAllowedOrigin, makeCheckAuth, makeRateLimit, readBody factories
+  hooks.js         Webhook store, SSRF validation, event delivery, per-event cooldowns, retry
+  compute.js       Health metric derivation (computeHealth, computeAutonomy)
+  enums.js         HealthStatus, HookEvent, TrendDirection, ChargingState
+  client.js        FelicityClient — auth, pagination, caching
+  http.js          felicityRequest using fetch() + AbortSignal.timeout()
+  helpers.js       sleep() and other shared utilities
+  state.js         startPoller, readState, snapshotEmitter
+  store.js         SnapshotStore, BatterySnapshotStore, DailySnapshotStore
+  battery.js       buildBattery — raw Felicity API → typed Battery
+  transform.js     Low-level field transforms (nullableInt, etc.)
 test/
   cache.test.js    MemoryCacheAdapter unit tests
   snapshot.test.js Snapshot store unit tests
@@ -62,6 +70,27 @@ const { startServer, FelicityClient, MemoryCacheAdapter, startPoller } = require
 const client = new FelicityClient({ user, pass, cache: new MemoryCacheAdapter() })
 const { url, setPollError, close } = await startServer(client, { port: 3010 })
 startPoller(client)  // begins background health computation and snapshot storage
+```
+
+## Code conventions
+
+**HTTP status codes — always use `node:http2` named constants, never raw numbers.** This applies everywhere: `res.writeHead(...)`, `new AppError(...)`, fallback expressions.
+
+```js
+const { constants: { HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
+                     HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_UNAUTHORIZED,
+                     HTTP_STATUS_NOT_FOUND, HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE,
+                     HTTP_STATUS_TOO_MANY_REQUESTS, HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                     HTTP_STATUS_SERVICE_UNAVAILABLE } } = require("node:http2");
+
+// Good
+res.writeHead(HTTP_STATUS_OK, { "Content-Type": "application/json" });
+throw new AppError("not found", HTTP_STATUS_NOT_FOUND);
+const status = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
+// Bad — never write raw numbers
+res.writeHead(200, ...);
+throw new AppError("not found", 404);
 ```
 
 ## Key conventions

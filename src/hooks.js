@@ -17,6 +17,7 @@ const { ChargingState, HealthStatus, HookEvent } = require("./enums");
 const { logger }                                 = require("./logger");
 const { sleep }                                  = require("./helpers");
 const { AppError }                               = require("./errors");
+const { constants: { HTTP_STATUS_BAD_REQUEST } } = require("node:http2");
 
 const HOOK_DELIVERY_TIMEOUT_MS = 8_000;  // per-request timeout for webhook HTTP delivery
 const DEFAULT_COOLDOWN_H       = 4;      // fallback cooldown if event is not in HOOK_COOLDOWNS_H
@@ -104,18 +105,18 @@ class HookStore {
   add({ url, events, secret }) {
     let parsed;
     try { parsed = new URL(url); } catch {
-      throw new AppError("invalid webhook url", 400);
+      throw new AppError("invalid webhook url", HTTP_STATUS_BAD_REQUEST);
     }
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      throw new AppError("webhook url must use http or https", 400);
+      throw new AppError("webhook url must use http or https", HTTP_STATUS_BAD_REQUEST);
     }
     if (_isPrivateHost(parsed.hostname)) {
-      throw new AppError("webhook url must not target a private address", 400);
+      throw new AppError("webhook url must not target a private address", HTTP_STATUS_BAD_REQUEST);
     }
     if (events?.length) {
       const unknown = events.filter((e) => !VALID_EVENTS.has(e));
       if (unknown.length) {
-        throw new AppError(`unknown event(s): ${unknown.join(", ")}`, 400);
+        throw new AppError(`unknown event(s): ${unknown.join(", ")}`, HTTP_STATUS_BAD_REQUEST);
       }
     }
     const id        = crypto.randomBytes(4).toString("hex");

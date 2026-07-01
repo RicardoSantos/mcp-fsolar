@@ -1,6 +1,8 @@
 "use strict";
 
 const crypto = require("crypto");
+const { constants: { HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_TOO_MANY_REQUESTS,
+                     HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE } } = require("node:http2");
 const { AppError } = require("./errors");
 
 const MAX_BODY_SIZE = 65_536; // 64 KB
@@ -35,7 +37,7 @@ function makeCheckAuth(apiKey) {
     const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
     const valid = token.length > 0 && crypto.timingSafeEqual(_hmac(token), _hmac(apiKey));
     if (!valid) {
-      res.writeHead(401, { "Content-Type": "application/json" });
+      res.writeHead(HTTP_STATUS_UNAUTHORIZED, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "unauthorized" }));
       return false;
     }
@@ -68,7 +70,7 @@ function makeRateLimit(rateLimit, trustProxy) {
     if (!b || now > b.resetAt) { b = { count: 0, resetAt: now + 60_000 }; _buckets.set(ip, b); }
     b.count++;
     if (b.count > rateLimit) {
-      res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(Math.ceil((b.resetAt - now) / 1000)) });
+      res.writeHead(HTTP_STATUS_TOO_MANY_REQUESTS, { "Content-Type": "application/json", "Retry-After": String(Math.ceil((b.resetAt - now) / 1000)) });
       res.end(JSON.stringify({ error: "too many requests" }));
       return false;
     }
@@ -91,7 +93,7 @@ function readBody(req) {
       if (size > MAX_BODY_SIZE) {
         done = true;
         req.resume();
-        req.once("end", () => reject(new AppError("Request body too large", 413)));
+        req.once("end", () => reject(new AppError("Request body too large", HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE)));
         return;
       }
       body += chunk;

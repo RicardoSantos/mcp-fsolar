@@ -275,16 +275,18 @@ startPoller(client)
 
 | Event | Trigger | Cooldown |
 |---|---|---|
-| `cell_delta_crit` | Cell delta ≥ 150 mV | 30 min |
-| `cell_delta_warn` | Cell delta ≥ 80 mV | 30 min |
-| `temp_crit` | Any cell ≥ 45 °C | 30 min |
-| `temp_warn` | Any cell ≥ 40 °C | 30 min |
-| `soh_warn` | SOH < 80 % | 60 min |
-| `low_soc` | SOC ≤ 10 % | 60 min |
-| `full` | SOC reaches 100 % | — |
-| `online` | Battery comes online | — |
-| `offline` | Battery goes offline | — |
+| `cell_delta_crit` | Cell delta ≥ 200 mV | 1 h |
+| `cell_delta_warn` | Cell delta ≥ 120 mV | 4 h |
+| `temp_crit` | tempMax ≥ 50 °C | 1 h |
+| `temp_warn` | tempMax ≥ 40 °C | 4 h |
+| `soh_warn` | SOH < 90 % | 24 h |
+| `low_soc` | SOC ≤ 25 % _(reserved)_ | 2 h |
+| `full` | SOC reaches 100 % _(reserved)_ | 8 h |
+| `online` | Battery comes online _(reserved)_ | 1 h |
+| `offline` | Battery goes offline _(reserved)_ | 1 h |
 | `snapshot` | Time-based (every `FELICITY_TELEMETRY_MS`) | none |
+
+Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TEMP_WARN`, etc. — see [docs/ALGORITHMS.md](./docs/ALGORITHMS.md)). Events marked _reserved_ are defined but not yet fired by the poller.
 
 ---
 

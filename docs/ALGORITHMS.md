@@ -226,9 +226,9 @@ The background poller evaluates health on every successful tick and fires HTTP P
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/hooks` | List all active subscriptions |
+| `GET` | `/hooks` | List all active subscriptions (secret field redacted) |
 | `POST` | `/hooks` | Register a new subscription |
-| `DELETE` | `/hooks/:id` | Remove a subscription |
+| `DELETE` | `/hooks/:id` | Remove a subscription — 200 on success, 404 if not found |
 
 **Register a hook:**
 ```http
@@ -237,25 +237,30 @@ Content-Type: application/json
 
 {
   "url":    "https://example.com/webhook",
-  "events": ["cell_delta_crit", "low_soc"],
-  "params": { "lowSocThreshold": 20 }
+  "events": ["cell_delta_crit", "soh_warn"],
+  "secret": "optional-hmac-secret"
 }
 ```
 
-`events` — optional array; omit to subscribe to all events.
-`params.lowSocThreshold` — SOC % threshold for the `low_soc` event (default **25 %**).
+`events` — optional array of `HookEvent` values; omit to subscribe to all events. Unknown values are rejected with 400.  
+`secret` — optional HMAC-SHA256 signing secret. When set, each delivery includes an `X-Hub-Signature-256: sha256=<hex>` header so the receiver can verify authenticity.
+
+**URL validation:** The `url` field must be a valid URL with `http` or `https` protocol. Private and loopback addresses (`127.x`, `10.x`, `192.168.x`, `172.16–31.x`, `169.254.x`, `::1`, `localhost`) are rejected to prevent SSRF.
 
 ### Events & cooldowns
 
 | Event | Trigger | Cooldown | `value` in payload |
 |---|---|---|---|
-| `cell_delta_crit` | cellDelta ≥ 200 mV | 4 h | cellDelta (mV) |
-| `cell_delta_warn` | 120 mV ≤ cellDelta < 200 mV | 24 h | cellDelta (mV) |
+| `cell_delta_crit` | cellDelta ≥ 200 mV | 1 h | cellDelta (mV) |
+| `cell_delta_warn` | 120 mV ≤ cellDelta < 200 mV | 4 h | cellDelta (mV) |
 | `temp_crit` | tempMax ≥ 50 °C | 1 h | tempMax (°C) |
 | `temp_warn` | 40 °C ≤ tempMax < 50 °C | 4 h | tempMax (°C) |
-| `outlier` | ≥ 1 persistent cell outlier detected | 24 h | outlier cell indices |
-| `soh_warn` | soh < 90 % | 168 h (7 days) | soh (%) |
-| `low_soc` | soc ≤ `lowSocThreshold` | 4 h | soc (%) |
+| `soh_warn` | soh < 90 % | 24 h | soh (%) |
+| `low_soc` | soc ≤ 25 % _(reserved — not yet fired)_ | 2 h | soc (%) |
+| `full` | soc = 100 % _(reserved — not yet fired)_ | 8 h | — |
+| `online` | battery comes online _(reserved — not yet fired)_ | 1 h | — |
+| `offline` | battery goes offline _(reserved — not yet fired)_ | 1 h | — |
+| `snapshot` | time-based — every `FELICITY_TELEMETRY_MS` | none | full snapshot payload |
 
 ### Webhook payload
 
@@ -339,6 +344,94 @@ This lets long-running analytics (e.g. battery lifetime, cycle tracking) read fr
 
 ---
 
+## Security
+
+This section documents all active security controls in `server.js` and `src/hooks.js`. Each control can be audited in isolation; `test/security.test.js` provides a live integration test suite for all of them.
+
+### Authentication (`FELICITY_API_KEY`)
+
+When `FELICITY_API_KEY` is set, every incoming REST request must carry the key in one of two headers:
+
+- `Authorization: Bearer <key>`
+- `X-API-Key: <key>`
+
+The comparison uses HMAC-then-`timingSafeEqual` to prevent timing side-channels:
+
+```js
+function _hmac(s) {
+  return crypto.createHmac("sha256", "felicity-key-cmp").update(s).digest();
+}
+crypto.timingSafeEqual(_hmac(token), _hmac(API_KEY))
+```
+
+HMAC normalisation ensures both operands are always the same byte length (32 bytes) regardless of input length — a requirement for `timingSafeEqual`. Requests without a valid key receive `401 Unauthorized`.
+
+**Exempt endpoints:** `/sse` and `/messages` (MCP SSE transport) — these are exempt so MCP clients that connect over SSE do not need to be configured with the API key.
+
+### CORS (`FELICITY_CORS_ORIGIN`)
+
+The `Access-Control-Allow-Origin` header is set as follows:
+
+- **Default (no env var):** The `Origin` header is reflected only when it matches `localhost` or `127.0.0.1` (any port). All other origins receive no CORS header — cross-origin requests from external hosts are blocked.
+- **`FELICITY_CORS_ORIGIN=*`:** Fully open. Any origin is allowed.
+- **`FELICITY_CORS_ORIGIN=https://your-app.example.com`:** Locked to exactly that origin.
+
+`Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS` and `Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key` are always included.
+
+### Rate limiting (`FELICITY_RATE_LIMIT`)
+
+An in-memory token bucket is maintained per IP address (keyed on `req.socket.remoteAddress`):
+
+- Default limit: **60 requests per minute**.
+- Bucket resets after 60 s. Stale buckets are purged every 5 minutes to prevent memory growth.
+- Excess requests receive `429 Too Many Requests` with a `Retry-After: 60` header.
+- Set `FELICITY_RATE_LIMIT=0` to disable (useful for test suites).
+
+Rate limiting is applied before authentication so that unauthenticated probing is also limited.
+
+### Webhook URL validation (SSRF protection)
+
+`POST /hooks` validates the `url` field before persisting a subscription:
+
+1. Must be a valid URL parseable by the WHATWG `URL` constructor.
+2. Protocol must be `http:` or `https:`.
+3. Hostname is checked against a blocklist regex that rejects private/loopback ranges:
+
+```
+localhost, 127.x.x.x, 10.x.x.x, 192.168.x.x, 172.16–31.x.x, 169.254.x.x, 0.0.0.0, ::1
+```
+
+Requests with invalid or blocked URLs receive `400 Bad Request`. This prevents an attacker from registering a webhook that causes the server to make internal HTTP requests (Server-Side Request Forgery).
+
+### Security headers
+
+Every HTTP response includes:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing attacks in browsers |
+| `Cache-Control` | `no-store` | Prevents caching of sensitive battery data |
+
+The `Server` header is not set (Node.js default is not present), so the runtime is not leaked to clients.
+
+### File permissions
+
+All JSON persistence files are written atomically (`.tmp` + `renameSync`) and then `chmod 0o600` is applied so only the process owner can read them:
+
+- `battery-snapshots.json`
+- `battery-daily.json`
+- `battery-state.json`
+- `battery-hooks.json`
+- `battery-hook-cooldowns.json`
+
+`chmod` is wrapped in a `try/catch` so it silently skips on Windows (where POSIX permissions do not apply).
+
+### Request size limit
+
+All POST request bodies are limited to **64 KiB** (`MAX_BODY_SIZE = 65536`). Requests that exceed this receive `413 Request Entity Too Large`. The body is fully drained before the response is sent so the client receives the error rather than a socket hang-up.
+
+---
+
 ## Environment variables
 
 ### Required
@@ -354,6 +447,15 @@ This lets long-running analytics (e.g. battery lifetime, cycle tracking) read fr
 |---|---|---|
 | `FELICITY_PORT` | `3010` | HTTP + MCP SSE listen port |
 | `FELICITY_POLL_MS` | `30000` | Live battery poll interval (ms); also sets the in-memory cache TTL |
+| `FELICITY_MODE` | _(auto)_ | Force transport: `http` starts the HTTP server regardless of TTY; `stdio` starts stdio MCP transport regardless of TTY. Default: auto-detect via `process.stdin.isTTY` |
+
+### Security (`server.js`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `FELICITY_API_KEY` | _(disabled)_ | When set, all REST requests must supply `Authorization: Bearer <key>` or `X-API-Key: <key>`. Comparison is timing-safe (HMAC-then-`timingSafeEqual`). MCP SSE/messages endpoints are exempt. |
+| `FELICITY_CORS_ORIGIN` | localhost only | Explicit `Access-Control-Allow-Origin` value. Default: reflect the request `Origin` only when it is a `localhost` or `127.0.0.1` origin (any port). Set to `*` to open fully. |
+| `FELICITY_RATE_LIMIT` | `60` | Maximum REST requests per minute per IP address. Uses an in-memory token bucket; buckets are purged every 5 minutes. Set to `0` to disable. Returns `429 Too Many Requests` with a `Retry-After` header. |
 
 ### Snapshot poller
 

@@ -7,6 +7,65 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.18] — 2026-07-01
+
+### Added
+- `test/security.test.js` — 36-test live security suite covering authentication, CORS, path traversal, SSRF, request size limits, security headers, and webhook lifecycle
+- `FELICITY_MODE=http|stdio` env var — explicit transport override (auto-detect via TTY can be bypassed in non-interactive shells)
+- `FELICITY_API_KEY` — optional API key authentication on all REST endpoints; accepted via `Authorization: Bearer` or `X-API-Key` header
+- `FELICITY_CORS_ORIGIN` — configurable CORS origin; defaults to localhost origins only
+- `FELICITY_RATE_LIMIT` — in-memory token-bucket rate limiter (default 60 req/min per IP; set `0` to disable)
+
+### Fixed
+- `POST /hooks`: `params` → `secret` destructuring — HMAC webhook signing now works correctly (was silently broken since v1.0.6)
+- `DELETE /hooks/:id` now returns 200 on success and 404 when the id is not found (previously always returned 404)
+- `readBody`: drain remaining bytes before rejecting oversized request so the 413 response is delivered correctly
+
+### Security
+- API key comparison uses `crypto.timingSafeEqual` with HMAC normalisation — eliminates timing side-channel
+- Webhook registration blocks private/loopback hostnames (SSRF protection)
+- `GET /hooks` no longer returns the `secret` field — redacted in `list()`
+- `battery-state.json` now created with `chmod 0o600` after every write (previously missed; snapshots/hooks files fixed in v1.0.17)
+- Webhook `events` array validated against `HookEvent` enum on registration
+- Security headers: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` on all responses
+
+## [1.0.17] — 2026-07-01
+
+### Added
+- Stdio transport auto-detected via `!process.stdin.isTTY` — `fsolar-mcp` can now be launched directly by Claude Code, Claude Desktop, and Cursor via the `command/args` MCP config without a separate server process
+
+### Changed
+- README: MCP section expanded with Claude Desktop, Cursor, and generic SSE client configs
+- README: REST API section now includes full endpoint table (12 routes incl. `/snapshots/*`), curl examples, and response shapes
+
+### Fixed
+- `SNAPSHOT_DIR` env var documented in configuration table (was in code but not in README)
+- CORS `Access-Control-Allow-Methods` now includes `DELETE`
+
+### Security
+- `Access-Control-Allow-Origin` restricted to localhost origins by default (`*` removed)
+- Webhook URL validated on `POST /hooks`: must be valid URL with `http` or `https` protocol
+- `chmod 0o600` applied to all snapshot and hook JSON files after write
+- `hookStore.remove()` returns `bool` so caller can distinguish 200 from 404
+
+## [1.0.16] — 2026-07-01
+
+### Added
+- CI: GitHub Release created automatically after `npm publish` via workflow
+- README: fleet view and cell-inspection screenshots
+- README: full Available data reference tables (per-battery, cell, BMS limits, lifecycle counters, modules, balance trend)
+- `SECURITY.md` and GitHub issue templates
+
+## [1.0.15] — 2026-07-01
+
+### Fixed
+- `docs/` directory now included in published npm package (`files` in `package.json`)
+
+## [1.0.14] — 2026-07-01
+
+### Fixed
+- README link to `ALGORITHMS.md` corrected after move to `docs/`
+
 ## [1.0.13] — 2026-07-01
 
 ### Changed

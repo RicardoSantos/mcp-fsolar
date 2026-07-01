@@ -139,7 +139,7 @@ The four enums exported by the package:
 | `ChargingState` | `CHARGING`, `DISCHARGING`, `STANDBY` |
 | `HealthStatus` | `OK`, `WARN`, `CRIT` |
 | `TrendDirection` | `IMPROVING`, `STABLE`, `DEGRADING` |
-| `HookEvent` | `CELL_DELTA_CRIT`, `CELL_DELTA_WARN`, `TEMP_CRIT`, `TEMP_WARN`, `SOH_WARN`, `LOW_SOC`, `FULL`, `ONLINE`, `OFFLINE` |
+| `HookEvent` | `CELL_DELTA_CRIT`, `CELL_DELTA_WARN`, `TEMP_CRIT`, `TEMP_WARN`, `SOH_WARN`, `LOW_SOC`, `FULL`, `ONLINE`, `OFFLINE`, `SNAPSHOT` |
 
 When adding a new discriminant string (a new event, state, or status):
 
@@ -153,10 +153,24 @@ Full documentation of all enum values, their trigger conditions, and cooldowns i
 ## Tests
 
 ```bash
-npm test          # runs all tests under test/
+npm test          # runs all unit tests under test/
 ```
 
 Tests use Node's built-in test runner (`node:test`). No external test framework is needed. New behaviour must be covered by tests.
+
+### Security tests
+
+`test/security.test.js` is a live integration test suite that runs against a running server. It is not included in `npm test` because it requires a live server process and real credentials:
+
+```bash
+# terminal 1 — start server in test mode (rate limit off, explicit API key)
+FELICITY_MODE=http FELICITY_API_KEY=test-key FELICITY_RATE_LIMIT=0 npx fsolar-mcp
+
+# terminal 2 — run the suite
+FELICITY_API_KEY=test-key node --test test/security.test.js
+```
+
+Any change that touches authentication, CORS, rate limiting, webhook URL validation, or request body handling must be re-verified against this suite.
 
 ## CHANGELOG format
 

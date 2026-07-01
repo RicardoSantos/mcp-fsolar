@@ -324,6 +324,10 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 
 ![Battery history — cell delta, temperature and deviation heatmap](docs/images/fleet_daily.jpg)
 
+**Discharging view** — live power flow and SOC during active discharge across the fleet.
+
+![Fleet discharging — live power flow and SOC](docs/images/fleet_discharging.jpg)
+
 ---
 
 ## Available data

@@ -25,7 +25,11 @@ const { z }                   = require("zod");
 
 // When stdin is not a TTY the process is being piped by an MCP host (Claude Code,
 // Claude Desktop, Cursor) — use stdio transport and skip the HTTP server.
-const IS_STDIO = !process.stdin.isTTY;
+// Override with FELICITY_MODE=http to force HTTP mode (e.g. background scripts),
+// or FELICITY_MODE=stdio to force stdio regardless of TTY.
+const IS_STDIO = process.env.FELICITY_MODE === "http" ? false
+               : process.env.FELICITY_MODE === "stdio" ? true
+               : !process.stdin.isTTY;
 const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, hookStore, startPoller, readState, TrendDirection } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -124,17 +128,22 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
     let size = 0;
+    let done = false;
     req.on("data", (chunk) => {
+      if (done) return;
       size += chunk.length;
       if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
+        done = true;
+        // Drain remaining bytes first — only reject (and respond) after the
+        // client finishes sending, so the 413 response is received correctly.
+        req.resume();
+        req.once("end", () => reject(Object.assign(new Error("Request body too large"), { statusCode: 413 })));
         return;
       }
       body += chunk;
     });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
+    req.on("end", () => { if (!done) resolve(body); });
+    req.on("error", (e) => { if (!done) reject(e); });
   });
 }
 
@@ -395,7 +404,11 @@ const httpServer = http.createServer(async (req, res) => {
     res.writeHead(404); res.end("Not found");
   } catch (err) {
     console.error(`[http] ${req.method} ${url.pathname} — ${err.message}`);
-    if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+    if (!res.headersSent) {
+      const status = err.statusCode ?? 500;
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: status === 413 ? "request body too large" : err.message }));
+    }
   }
 });
 

@@ -41,6 +41,8 @@ claude mcp add felicity \
   -- npx fsolar-mcp
 ```
 
+Claude Code launches a fresh `fsolar-mcp` process for each session (via stdio) and kills it when done. Each process starts its own poller, so `get_balance_trend` needs ~10 min of uptime before trend data is available.
+
 Ask Claude things like *"what's the battery SOC?"*, *"is any cell imbalanced?"*, or *"show me the cell voltages for Bat2"*.
 
 ### Claude Desktop

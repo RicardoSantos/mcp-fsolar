@@ -2,23 +2,29 @@
 /**
  * Felicity Solar MCP + HTTP server.
  *
- * Two interfaces from one process:
- *   REST  →  http://localhost:3010/batteries
- *   MCP   →  http://localhost:3010/sse
+ * Two modes (auto-detected):
+ *   stdio  →  launched by Claude Code / Claude Desktop / Cursor via command config
+ *   HTTP   →  REST http://localhost:3010/batteries  +  MCP http://localhost:3010/sse
  *
- * Register with Claude Code:
+ * Register with Claude Code (auto-launch, no separate process):
+ *   claude mcp add felicity -e FELICITY_USER=you@example.com -e FELICITY_PASS=pass -- npx fsolar-mcp
+ *
+ * Or run as persistent server and connect via SSE:
  *   claude mcp add felicity --transport sse http://localhost:3010/sse
- *
- * Start: node fsolar/server.js   (or: npm start inside fsolar/)
  */
 
 const http = require("http");
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
-const { McpServer }          = require("@modelcontextprotocol/sdk/server/mcp.js");
+const { McpServer }           = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
-const { z }                  = require("zod");
+const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
+const { z }                   = require("zod");
+
+// When stdin is not a TTY the process is being piped by an MCP host (Claude Code,
+// Claude Desktop, Cursor) — use stdio transport and skip the HTTP server.
+const IS_STDIO = !process.stdin.isTTY;
 const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, hookStore, startPoller, readState, TrendDirection } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -352,14 +358,21 @@ async function main() {
     console.error("[fsolar] Missing credentials — set FELICITY_USER and FELICITY_PASS in .env or environment");
     process.exit(1);
   }
-  console.log(`[fsolar] Felicity MCP + REST server — port ${PORT}  poll ${POLL_MS / 1000}s`);
+
   await poll();
   setInterval(poll, POLL_MS);
   startPoller(client);
-  httpServer.listen(PORT, () => {
-    console.log(`[fsolar] REST  http://localhost:${PORT}/batteries`);
-    console.log(`[fsolar] MCP   http://localhost:${PORT}/sse`);
-  });
+
+  if (IS_STDIO) {
+    const transport = new StdioServerTransport();
+    await mcp.connect(transport);
+  } else {
+    console.log(`[fsolar] Felicity MCP + REST server — port ${PORT}  poll ${POLL_MS / 1000}s`);
+    httpServer.listen(PORT, () => {
+      console.log(`[fsolar] REST  http://localhost:${PORT}/batteries`);
+      console.log(`[fsolar] MCP   http://localhost:${PORT}/sse`);
+    });
+  }
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

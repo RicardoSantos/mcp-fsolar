@@ -28,6 +28,7 @@ const HookEvent = Object.freeze({
   FULL:            "full",
   ONLINE:          "online",
   OFFLINE:         "offline",
+  SNAPSHOT:        "snapshot",
 });
 
 module.exports = { ChargingState, HealthStatus, TrendDirection, HookEvent };

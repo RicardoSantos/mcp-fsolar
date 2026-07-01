@@ -12,7 +12,7 @@ const { computeHealth, computeAutonomy,
         HEALTH_CELL_DELTA_WARN, HEALTH_CELL_DELTA_CRIT,
         HEALTH_TEMP_WARN, HEALTH_TEMP_CRIT,
         HEALTH_OUTLIER_MV, HEALTH_SOH_WARN }              = require("./src/compute");
-const { startPoller, readState }                          = require("./src/state");
+const { startPoller, readState, snapshotEmitter }         = require("./src/state");
 const { ChargingState, HealthStatus, TrendDirection,
         HookEvent }                                       = require("./src/enums");
 
@@ -27,6 +27,7 @@ module.exports = {
   hookStore,
   startPoller,
   readState,
+  snapshotEmitter,
   computeHealth,
   computeAutonomy,
   buildBattery,

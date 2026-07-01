@@ -105,6 +105,14 @@ class HookStore {
     });
   }
 
+  async fireSnapshot(payload) {
+    const hooks = this._load();
+    for (const hook of hooks) {
+      if (hook.events.length && !hook.events.includes(HookEvent.SNAPSHOT)) continue;
+      this._deliver(hook, HookEvent.SNAPSHOT, payload).catch(() => {});
+    }
+  }
+
   async fire(batteries, health) {
     const hooks     = this._load();
     if (!hooks.length) return;

@@ -31,6 +31,7 @@ export declare const HookEvent: {
   readonly FULL:            "full";
   readonly ONLINE:          "online";
   readonly OFFLINE:         "offline";
+  readonly SNAPSHOT:        "snapshot";
 };
 export type HookEvent = typeof HookEvent[keyof typeof HookEvent];
 
@@ -261,6 +262,13 @@ export declare function readState(): MaterializedState | null;
  *  Returns a stop function. */
 export declare function startPoller(client: FelicityClient): () => void;
 
+export interface SnapshotPayload {
+  batteries: Battery[];
+  health:    Record<string, BatteryHealth>;
+  /** ISO string of when the snapshot was emitted (not necessarily when data was fetched — check batteries[n].dataTime for freshness). */
+  ts:        string;
+}
+
 export interface HookPayload {
   event:     string;
   battery:   string;
@@ -284,8 +292,14 @@ export declare class HookStore {
   remove(id: string): boolean;
   list(): HookSubscription[];
   fire(batteries: Battery[], health: Record<string, BatteryHealth>): Promise<void>;
+  fireSnapshot(payload: SnapshotPayload): Promise<void>;
 }
 
 export declare const hookStore:          HookStore;
 export declare const snapshotStore:      BatterySnapshotStore;
 export declare const dailySnapshotStore: DailySnapshotStore;
+
+/** EventEmitter that fires a 'snapshot' event every FELICITY_SNAPSHOT_MS (default 5 min).
+ *  Payload is SnapshotPayload — the last data fetched by the poller.
+ *  Use this for same-process subscriptions; register a hook URL for cross-process delivery. */
+export declare const snapshotEmitter: import('events').EventEmitter;

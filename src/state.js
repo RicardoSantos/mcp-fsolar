@@ -1,13 +1,17 @@
 "use strict";
 
+const { EventEmitter } = require("events");
 const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
-const { snapshotStore }              = require("./store");
-const { hookStore }                  = require("./hooks");
+const { snapshotStore }                  = require("./store");
+const { hookStore }                      = require("./hooks");
 const { computeHealth, computeAutonomy } = require("./compute");
 
-const POLL_MS = parseInt(process.env.FELICITY_POLL_MS ?? "30000", 10);
+const POLL_MS     = parseInt(process.env.FELICITY_POLL_MS     ?? "30000",  10);
+const SNAPSHOT_MS = parseInt(process.env.FELICITY_SNAPSHOT_MS ?? "300000", 10);
+
+const snapshotEmitter = new EventEmitter();
 
 function _stateFile() {
   return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "felicity-state.json");
@@ -33,7 +37,16 @@ function readState() {
   catch { return null; }
 }
 
-let _tickRunning = false;
+let _tickRunning   = false;
+let _lastBatteries = null;
+let _lastHealth    = null;
+
+function _emitSnapshot() {
+  if (!_lastBatteries) return;
+  const payload = { batteries: _lastBatteries, health: _lastHealth, ts: new Date().toISOString() };
+  snapshotEmitter.emit("snapshot", payload);
+  hookStore.fireSnapshot(payload).catch(() => {});
+}
 
 function startPoller(client) {
   async function tick() {
@@ -43,6 +56,8 @@ function startPoller(client) {
       const { batteries } = await client.getBatteries();
       const snapshots = snapshotStore.getSnapshots();
       const health    = computeHealth(batteries, snapshots);
+      _lastBatteries  = batteries;
+      _lastHealth     = health;
       _writeState(batteries, snapshots, health);
       await hookStore.fire(batteries, health);
     } catch (err) {
@@ -54,6 +69,7 @@ function startPoller(client) {
 
   tick();
   setInterval(tick, POLL_MS);
+  setInterval(_emitSnapshot, SNAPSHOT_MS);
 }
 
-module.exports = { startPoller, readState };
+module.exports = { startPoller, readState, snapshotEmitter };

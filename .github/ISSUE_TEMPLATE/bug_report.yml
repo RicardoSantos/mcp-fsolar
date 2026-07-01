@@ -1,0 +1,68 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before reporting:** check that you're on the latest version (`npm install fsolar-mcp@latest`) and search existing issues.
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: "e.g. 1.0.15"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - FelicityClient (login / getBatteries / getBattery)
+        - Snapshot store / polling
+        - computeHealth
+        - computeAutonomy
+        - HookStore / webhooks
+        - snapshotEmitter / telemetry
+        - MCP server / tools
+        - REST API
+        - TypeScript types
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the error message or unexpected output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Call `client.getBatteries()`
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        Node.js version:
+        OS:
+        Running as: standalone server / embedded library / MCP via Claude Code

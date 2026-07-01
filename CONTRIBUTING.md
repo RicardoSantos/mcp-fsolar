@@ -93,6 +93,39 @@ git push --follow-tags
 
 Use the PR template when opening a pull request — it will pre-populate the description.
 
+## Coding conventions
+
+### No magic strings
+
+All discriminant string values must be referenced through the enums in `src/enums.js` — never as bare string literals. The same rule applies to any new discriminant you introduce.
+
+```js
+// ✗ wrong
+if (bat.chargingState === "discharging") { ... }
+
+// ✓ correct
+const { ChargingState } = require("./enums");
+if (bat.chargingState === ChargingState.DISCHARGING) { ... }
+```
+
+The four enums exported by the package:
+
+| Enum | Values |
+|---|---|
+| `ChargingState` | `CHARGING`, `DISCHARGING`, `STANDBY` |
+| `HealthStatus` | `OK`, `WARN`, `CRIT` |
+| `TrendDirection` | `IMPROVING`, `STABLE`, `DEGRADING` |
+| `HookEvent` | `CELL_DELTA_CRIT`, `CELL_DELTA_WARN`, `TEMP_CRIT`, `TEMP_WARN`, `SOH_WARN`, `LOW_SOC`, `FULL`, `ONLINE`, `OFFLINE` |
+
+When adding a new discriminant string (a new event, state, or status):
+
+1. Add the constant to the appropriate enum in `src/enums.js`.
+2. Use it everywhere — in production code, tests, and documentation.
+3. Export it from `index.js` and declare it in `index.d.ts`.
+4. Add a row to the relevant table in `docs/ALGORITHMS.md`.
+
+Full documentation of all enum values, their trigger conditions, and cooldowns is in [docs/ALGORITHMS.md](./docs/ALGORITHMS.md#string-enums).
+
 ## Tests
 
 ```bash

@@ -34,3 +34,22 @@ jobs:
         run: npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}" && npm publish --provenance --access public
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  release:
+    name: GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --verify-tag

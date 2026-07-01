@@ -711,11 +711,11 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
 
   // ── SOC at sunrise ────────────────────────────────────────────────────────
   let estimatedSocAtSunrise = null;
-  if (sunriseAt != null && packCapacityKwh != null) {
+  if (sunriseAt != null && totalCapacityKwh > 0) {
     const hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
-    const minKwh = packCapacityKwh * (minSocPct / 100);
+    const minKwh = totalCapacityKwh * (minSocPct / 100);
     const remaining = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
-    estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / packCapacityKwh) * 100), 100);
+    estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / totalCapacityKwh) * 100), 100);
   }
 
   return {

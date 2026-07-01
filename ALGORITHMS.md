@@ -145,14 +145,22 @@ batEstimatedHoursToFull = round((batCapacityKwh × (1 − bat.soc/100)) / (bat.p
 
 ### SOC at sunrise
 
-Only computed when `sunriseAt` and `packCapacityKwh` are provided. Returns `null` otherwise.
+Only computed when `sunriseAt` is provided and capacity can be determined. Returns `null` otherwise.
+
+Capacity is resolved in order:
+1. `packCapacityKwh` option (explicit override)
+2. `bat.ratedEnergyKwh` from the Felicity API (`ratedEnergy` field in the snapshot)
+3. Derived per battery: `bat.remainingKwh / (bat.soc / 100)` when `soc > 0`
 
 ```
+totalCapacityKwh      = packCapacityKwh
+                        ?? sum(bat.ratedEnergyKwh ?? bat.remainingKwh / (bat.soc / 100))
+
 hoursToSunrise        = max(0, (sunriseAt − now) / 3_600_000)
 discharged            = dischargeRateKw × hoursToSunrise
-minKwh                = packCapacityKwh × (minSocPct / 100)
+minKwh                = totalCapacityKwh × (minSocPct / 100)
 estimatedKwh          = max(minKwh, totalRemainingKwh − discharged)
-estimatedSocAtSunrise = clamp(round(estimatedKwh / packCapacityKwh × 100), minSocPct, 100)
+estimatedSocAtSunrise = clamp(round(estimatedKwh / totalCapacityKwh × 100), minSocPct, 100)
 ```
 
 **Assumptions:** Constant discharge rate until sunrise. Does not model temperature effects, BMS cut-off curves, or PV/grid interaction.

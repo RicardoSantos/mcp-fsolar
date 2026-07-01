@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.11] — 2026-07-01
+
+### Fixed
+- `computeAutonomy`: `estimatedSocAtSunrise` no longer requires `packCapacityKwh` to be explicitly passed — uses the same `totalCapacityKwh` already derived from `bat.ratedEnergyKwh` (Felicity API field) or `bat.remainingKwh / (bat.soc / 100)` per battery
+
 ## [1.0.10] — 2026-06-30
 
 ### Fixed

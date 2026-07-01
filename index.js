@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 "use strict";
 
 const { MemoryCacheAdapter }                              = require("./src/cache");
@@ -15,8 +14,14 @@ const { computeHealth, computeAutonomy,
 const { startPoller, readState, snapshotEmitter }         = require("./src/state");
 const { ChargingState, HealthStatus, TrendDirection,
         HookEvent }                                       = require("./src/enums");
+const { createServer, startServer }                       = require("./server");
+const { createLogger, logger }                            = require("./src/logger");
+const { AppError }                                        = require("./src/errors");
 
 module.exports = {
+  // Server (embedded / programmatic mode)
+  createServer,
+  startServer,
   FelicityClient,
   MemoryCacheAdapter,
   SnapshotStore,
@@ -46,4 +51,9 @@ module.exports = {
   HEALTH_TEMP_CRIT,
   HEALTH_OUTLIER_MV,
   HEALTH_SOH_WARN,
+  // logging
+  createLogger,
+  logger,
+  // errors
+  AppError,
 };

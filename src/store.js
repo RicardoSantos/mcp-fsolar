@@ -5,6 +5,7 @@ const os   = require("os");
 const path = require("path");
 const { clamp, pickSnapshotFields } = require("./helpers");
 const { TrendDirection }            = require("./enums");
+const { logger }                    = require("./logger");
 
 const TREND_STABLE_MV = 3;  // dead-band: delta change within ±3 mV is classified as "stable"
 
@@ -54,7 +55,7 @@ class SnapshotStore {
       fs.writeFileSync(tmp, JSON.stringify({ snapshots }, null, 2));
       fs.renameSync(tmp, dest);
       try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
-    } catch (e) { console.error(`[SnapshotStore:${this._fileName}] write failed: ${e.message}`); }
+    } catch (e) { logger.error("SnapshotStore write failed", { store: this._fileName, err: e.message }); }
   }
 
   maybeAdd(batteries) {

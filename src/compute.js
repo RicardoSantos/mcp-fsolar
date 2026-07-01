@@ -112,6 +112,9 @@ function computeHealth(batteries, snapshots) {
   return result;
 }
 
+const snapDischargeW = (snap) =>
+  snap.batteries.reduce((s, b) => s + Math.abs(Math.min(0, b.power ?? 0)), 0);
+
 function computeAutonomy(batteries, snapshots, opts = {}) {
   const { sunriseAt = null, packCapacityKwh = null, minSocPct = 5, defaultDischargeKw = 1.5 } = opts;
 
@@ -125,7 +128,7 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   } else {
     const nightSnaps = snapshots.filter((s) => s.batteries.some((b) => (b.power ?? 0) < -MIN_ACTIVE_DISCHARGE_W));
     const avgW = nightSnaps.length
-      ? nightSnaps.reduce((acc, snap) => acc + snap.batteries.reduce((sum, entry) => sum + Math.abs(Math.min(0, entry.power ?? 0)), 0), 0) / nightSnaps.length
+      ? nightSnaps.reduce((acc, s) => acc + snapDischargeW(s), 0) / nightSnaps.length
       : 0;
     dischargeRateKw = avgW > MIN_ACTIVE_DISCHARGE_W ? avgW / 1000 : defaultDischargeKw;
   }

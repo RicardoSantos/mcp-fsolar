@@ -61,7 +61,7 @@ function buildBattery(device, snap) {
     batCycleIndex:        nullableInt(snap.batCycleIndex),
     batFullCount:         nullableInt(snap.batFullCount),
     batUnderVoltageCount: nullableInt(snap.batUnderVoltageCount),
-    warningCount:         snap.warningCount != null ? parseInt(snap.warningCount, 10) : 0,
+    warningCount:         nullableInt(snap.warningCount) ?? 0,
     remainingKwh:         parseFloat(snap.remainingBatteryEnergy1 ?? "0"),
     capacityAh:           parseFloat(snap.battCapacity ?? device.battCapacity ?? String(DEFAULT_CAPACITY_AH)),
     ratedEnergyKwh:       nullableFloat(snap.ratedEnergy) || null,

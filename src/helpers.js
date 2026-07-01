@@ -3,6 +3,7 @@
 function nullableInt(v)   { return v != null ? parseInt(v, 10) : null; }
 function nullableFloat(v) { return v != null ? parseFloat(v)  : null; }
 function clamp(min, val, max) { return Math.max(min, Math.min(max, val)); }
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function pickSnapshotFields(b) {
   return {
@@ -26,4 +27,4 @@ function pickSnapshotFields(b) {
   };
 }
 
-module.exports = { nullableInt, nullableFloat, clamp, pickSnapshotFields };
+module.exports = { nullableInt, nullableFloat, clamp, sleep, pickSnapshotFields };

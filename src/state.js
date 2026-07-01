@@ -4,9 +4,10 @@ const { EventEmitter } = require("events");
 const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
-const { snapshotStore }                  = require("./store");
-const { hookStore }                      = require("./hooks");
-const { computeHealth, computeAutonomy } = require("./compute");
+const { snapshotStore: _defaultSnapshotStore } = require("./store");
+const { hookStore:     _defaultHookStore     } = require("./hooks");
+const { computeHealth, computeAutonomy }       = require("./compute");
+const { logger }                               = require("./logger");
 
 const POLL_MS      = parseInt(process.env.FELICITY_POLL_MS      ?? "30000",  10);
 const TELEMETRY_MS = parseInt(process.env.FELICITY_TELEMETRY_MS ?? "300000", 10);
@@ -17,39 +18,53 @@ function _stateFile() {
   return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "felicity-state.json");
 }
 
-function _writeState(batteries, snapshots, health) {
+function _writeState(batteries, snapshots, health, snapshotStore) {
   try {
     const trend    = snapshotStore.getAllTrends(batteries, snapshots);
     const autonomy = computeAutonomy(batteries, snapshots);
-    const tmp = _stateFile() + ".tmp";
+    const dest = _stateFile();
+    const tmp  = dest + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(
       { batteries, trend, health, autonomy, updatedAt: new Date().toISOString() },
       null, 2
     ));
-    fs.renameSync(tmp, _stateFile());
-    try { fs.chmodSync(_stateFile(), 0o600); } catch { /* Windows */ }
+    fs.renameSync(tmp, dest);
+    try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
   } catch (e) {
-    console.error(`[fsolar] _writeState failed: ${e.message}`);
+    logger.error("_writeState failed", { err: e.message });
   }
 }
 
-function readState() {
-  try { return JSON.parse(fs.readFileSync(_stateFile(), "utf8")); }
+async function readState() {
+  try { return JSON.parse(await fs.promises.readFile(_stateFile(), "utf8")); }
   catch { return null; }
 }
 
-let _tickRunning   = false;
-let _lastBatteries = null;
-let _lastHealth    = null;
+/**
+ * Start background polling: health computation, state persistence, webhook delivery,
+ * and periodic telemetry snapshots.
+ *
+ * @param {object} client  FelicityClient instance.
+ * @param {object} [opts]
+ * @param {object} [opts.snapshotStore]  Override the default snapshotStore singleton.
+ * @param {object} [opts.hookStore]      Override the default hookStore singleton.
+ * @returns {{ stop(): void }}  Call stop() to clear both polling intervals.
+ */
+function startPoller(client, opts = {}) {
+  const snapshotStore = opts.snapshotStore ?? _defaultSnapshotStore;
+  const hookStore     = opts.hookStore     ?? _defaultHookStore;
 
-function _emitSnapshot() {
-  if (!_lastBatteries) return;
-  const payload = { batteries: _lastBatteries, health: _lastHealth, ts: new Date().toISOString() };
-  snapshotEmitter.emit("snapshot", payload);
-  hookStore.fireSnapshot(payload).catch(() => {});
-}
+  let _tickRunning   = false;
+  let _lastBatteries = null;
+  let _lastHealth    = null;
 
-function startPoller(client) {
+  function _emitSnapshot() {
+    if (!_lastBatteries) return;
+    const payload = { batteries: _lastBatteries, health: _lastHealth, ts: new Date().toISOString() };
+    snapshotEmitter.emit("snapshot", payload);
+    hookStore.fireSnapshot(payload).catch(() => {});
+  }
+
   async function tick() {
     if (_tickRunning) return;
     _tickRunning = true;
@@ -59,18 +74,25 @@ function startPoller(client) {
       const health    = computeHealth(batteries, snapshots);
       _lastBatteries  = batteries;
       _lastHealth     = health;
-      _writeState(batteries, snapshots, health);
+      _writeState(batteries, snapshots, health, snapshotStore);
       await hookStore.fire(batteries, health);
     } catch (err) {
-      console.error(`[fsolar] tick error: ${err.message}`);
+      logger.error("tick error", { err: err.message });
     } finally {
       _tickRunning = false;
     }
   }
 
   tick();
-  setInterval(tick, POLL_MS);
-  setInterval(_emitSnapshot, TELEMETRY_MS);
+  const tickInterval      = setInterval(tick, POLL_MS);
+  const telemetryInterval = setInterval(_emitSnapshot, TELEMETRY_MS);
+
+  return {
+    stop() {
+      clearInterval(tickInterval);
+      clearInterval(telemetryInterval);
+    },
+  };
 }
 
 module.exports = { startPoller, readState, snapshotEmitter };

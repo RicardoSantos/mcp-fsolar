@@ -1,28 +1,34 @@
 "use strict";
 
 const crypto = require("crypto");
-const { RSA_PUB, TOKEN_TTL_MS, felicityRequest } = require("./http");
-const { snapshotStore, dailySnapshotStore }      = require("./store");
-const { buildBattery }                           = require("./battery");
-const { MemoryCacheAdapter }                     = require("./cache");
+const { RSA_PUB, TOKEN_TTL_MS, felicityRequest }                              = require("./http");
+const { snapshotStore: _defaultSnapshotStore,
+        dailySnapshotStore: _defaultDailySnapshotStore }                      = require("./store");
+const { buildBattery }                                                        = require("./battery");
+const { MemoryCacheAdapter }                                                  = require("./cache");
+const { logger }                                                              = require("./logger");
 
 class FelicityClient {
   /**
    * @param {object}   opts
-   * @param {string}   opts.user      - Felicity account email
-   * @param {string}   opts.pass      - Felicity account password (plain text)
-   * @param {object}   [opts.cache]   - Cache adapter { get, set }. Defaults to MemoryCacheAdapter.
-   * @param {number}   [opts.ttl=30]  - Cache TTL in seconds.
-   * @param {Function} [opts._fetch]  - Internal: override HTTP transport (for testing).
+   * @param {string}   opts.user                - Felicity account email
+   * @param {string}   opts.pass                - Felicity account password (plain text)
+   * @param {object}   [opts.cache]             - Cache adapter { get, set }. Defaults to MemoryCacheAdapter.
+   * @param {number}   [opts.ttl=30]            - Cache TTL in seconds.
+   * @param {object}   [opts.snapshotStore]     - Override the default intraday snapshot store.
+   * @param {object}   [opts.dailySnapshotStore] - Override the default daily snapshot store.
+   * @param {Function} [opts._fetch]            - Internal: override HTTP transport (for testing).
    */
-  constructor({ user, pass, cache, ttl = 30, _fetch = felicityRequest }) {
-    this._user        = user;
-    this._pass        = pass;
-    this._cache       = cache ?? new MemoryCacheAdapter();
-    this._ttl         = ttl;
-    this._fetch       = _fetch;
-    this._token       = null;
-    this._tokenExpiry = 0;
+  constructor({ user, pass, cache, ttl = 30, snapshotStore, dailySnapshotStore, _fetch = felicityRequest }) {
+    this._user               = user;
+    this._pass               = pass;
+    this._cache              = cache ?? new MemoryCacheAdapter();
+    this._ttl                = ttl;
+    this._fetch              = _fetch;
+    this._token              = null;
+    this._tokenExpiry        = 0;
+    this._snapshotStore      = snapshotStore      ?? _defaultSnapshotStore;
+    this._dailySnapshotStore = dailySnapshotStore ?? _defaultDailySnapshotStore;
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -44,29 +50,54 @@ class FelicityClient {
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
   async _fetchAll() {
-    const token   = await this._ensureToken();
-    const devResp = await this._fetch("POST", "/device/list_device_all_type", { pageNum: 1, pageSize: 100 }, token);
-    if (devResp.code !== 200)
-      throw new Error(`Device list failed: ${devResp.message ?? devResp.code} — response: ${JSON.stringify(devResp).slice(0, 200)}`);
+    const PAGE_SIZE = 100;
+    let retried = false;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const token      = await this._ensureToken();
+      let allDevices   = [];
+      let pageNum      = 1;
+      let authFailed   = false;
 
-    const allDevices = devResp.data?.dataList ?? [];
-    if (allDevices.length >= 100)
-      console.warn("[fsolar] device list hit pageSize=100 — some devices may be missing");
+      // Paginate until a page comes back smaller than PAGE_SIZE.
+      while (true) {
+        const devResp = await this._fetch("POST", "/device/list_device_all_type", { pageNum, pageSize: PAGE_SIZE }, token);
 
-    const devices = allDevices.filter((d) => d.deviceType === "BP");
-    const dateStr = new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+        if (devResp.code !== 200) {
+          // On first auth failure, clear the token and restart pagination from page 1.
+          if (!retried && (devResp.code === 401 || devResp.code === 403 || /token|auth|expired/i.test(devResp.message ?? ""))) {
+            retried = true;
+            this._token = null;
+            this._tokenExpiry = 0;
+            authFailed = true;
+            break;
+          }
+          throw new Error(`Device list failed: ${devResp.message ?? devResp.code} — response: ${JSON.stringify(devResp).slice(0, 200)}`);
+        }
 
-    const batteries = await Promise.all(
-      devices.map(async (dev) => {
-        const snap = await this._fetch("POST", "/device/get_device_snapshot",
-          { deviceSn: dev.deviceSn, deviceType: "BP", dateStr }, token);
-        if (snap.code !== 200) throw new Error(`Snapshot failed for ${dev.deviceSn}: ${snap.message ?? snap.code}`);
-        return buildBattery(dev, snap.data);
-      })
-    );
+        const page = devResp.data?.dataList ?? [];
+        allDevices.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        pageNum++;
+      }
 
-    batteries.sort((a, b) => a.alias.localeCompare(b.alias));
-    return batteries;
+      if (authFailed) continue;
+
+      const devices = allDevices.filter((d) => d.deviceType === "BP");
+      const dateStr = new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+
+      const batteries = await Promise.all(
+        devices.map(async (dev) => {
+          const snap = await this._fetch("POST", "/device/get_device_snapshot",
+            { deviceSn: dev.deviceSn, deviceType: "BP", dateStr }, token);
+          if (snap.code !== 200) throw new Error(`Snapshot failed for ${dev.deviceSn}: ${snap.message ?? snap.code}`);
+          return buildBattery(dev, snap.data);
+        })
+      );
+
+      batteries.sort((a, b) => a.alias.localeCompare(b.alias));
+      return batteries;
+    }
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -74,14 +105,14 @@ class FelicityClient {
   async getBatteries() {
     const CACHE_KEY = `batteries:${this._user}`;
     const cached    = await this._cache.get(CACHE_KEY);
-    if (cached) return { ...cached, fromCache: true, trend: snapshotStore.getAllTrends(cached.batteries) };
+    if (cached) return { ...cached, fromCache: true, trend: this._snapshotStore.getAllTrends(cached.batteries) };
 
     const batteries = await this._fetchAll();
     const fetchedAt = new Date().toISOString();
     await this._cache.set(CACHE_KEY, { batteries, fetchedAt }, this._ttl);
-    snapshotStore.maybeAdd(batteries);
-    dailySnapshotStore.maybeAdd(batteries);
-    return { batteries, fetchedAt, fromCache: false, trend: snapshotStore.getAllTrends(batteries) };
+    this._snapshotStore.maybeAdd(batteries);
+    this._dailySnapshotStore.maybeAdd(batteries);
+    return { batteries, fetchedAt, fromCache: false, trend: this._snapshotStore.getAllTrends(batteries) };
   }
 
   async getBattery(id) {

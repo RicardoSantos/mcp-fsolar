@@ -35,6 +35,13 @@ export declare const HookEvent: {
 };
 export type HookEvent = typeof HookEvent[keyof typeof HookEvent];
 
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+export declare class AppError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode?: number);
+}
+
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
 export interface BatteryModule {
@@ -135,17 +142,14 @@ export interface CacheAdapter {
   set(key: string, value: { batteries: Battery[]; fetchedAt: string }, ttlSeconds: number): Promise<void>;
 }
 
-export interface FelicityClientOptions {
-  user:   string;
-  pass:   string;
-  cache?: CacheAdapter;
-  ttl?:   number;
-}
+// ── Cache ─────────────────────────────────────────────────────────────────────
 
 export declare class MemoryCacheAdapter implements CacheAdapter {
   get(key: string): Promise<{ batteries: Battery[]; fetchedAt: string } | null>;
   set(key: string, value: { batteries: Battery[]; fetchedAt: string }, ttlSeconds: number): Promise<void>;
 }
+
+// ── Snapshot stores ───────────────────────────────────────────────────────────
 
 export declare class SnapshotStore {
   constructor(opts: { fileName: string; maxSnapshots: number; intervalMs: number });
@@ -156,11 +160,22 @@ export declare class SnapshotStore {
 export declare class BatterySnapshotStore extends SnapshotStore {
   constructor();
   getTrend(sn: string): BalanceTrend | null;
-  getAllTrends(batteries: Pick<Battery, "sn">[]): Record<string, BalanceTrend>;
+  getAllTrends(batteries: Pick<Battery, "sn">[], snapshots?: BatterySnapshot[]): Record<string, BalanceTrend>;
 }
 
 export declare class DailySnapshotStore extends SnapshotStore {
   constructor();
+}
+
+// ── Client ────────────────────────────────────────────────────────────────────
+
+export interface FelicityClientOptions {
+  user:                string;
+  pass:                string;
+  cache?:              CacheAdapter;
+  ttl?:                number;
+  snapshotStore?:      BatterySnapshotStore;
+  dailySnapshotStore?: DailySnapshotStore;
 }
 
 export declare class FelicityClient {
@@ -169,23 +184,53 @@ export declare class FelicityClient {
   getBattery(id: string): Promise<BatteryResult>;
 }
 
-export declare function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery;
+// ── Webhooks ──────────────────────────────────────────────────────────────────
 
-export interface FleetSummary {
-  totalKwh:       number;
-  totalPowerW:    number;
-  avgSoc:         number;
-  worstCellDelta: number | null;
-  maxTempC:       number;
+export interface HookSubscription {
+  id:        string;
+  url:       string;
+  /** Empty array means subscribe to all events. */
+  events:    string[];
+  createdAt: string;
 }
+
+export interface HookDelivery {
+  event:    string;
+  url:      string;
+  ok:       boolean;
+  status:   number;
+  attempts: number;
+  ts:       string;
+}
+
+export interface SnapshotPayload {
+  batteries: Battery[];
+  health:    Record<string, BatteryHealth>;
+  /** ISO string of when the snapshot was emitted. */
+  ts:        string;
+}
+
+export declare class HookStore {
+  add(opts: { url: string; events?: string[]; secret?: string }): HookSubscription;
+  remove(id: string): boolean;
+  list(): HookSubscription[];
+  getDeliveries(hookId: string): HookDelivery[];
+  fire(batteries: Battery[], health: Record<string, BatteryHealth>): Promise<void>;
+  fireSnapshot(payload: SnapshotPayload): Promise<void>;
+}
+
+export declare const hookStore:          HookStore;
+export declare const snapshotStore:      BatterySnapshotStore;
+export declare const dailySnapshotStore: DailySnapshotStore;
+
+// ── Health & autonomy ─────────────────────────────────────────────────────────
 
 export interface BatteryHealth {
   alias:           string;
   cellDeltaStatus: HealthStatus | null;
   cellDelta:       number | null;
   /** Median cell delta from discharge-only snapshots (delta < 30 mV).
-   *  Excludes top-of-charge readings where the BMS is still balancing.
-   *  null if fewer than 3 qualifying snapshots. */
+   *  Excludes top-of-charge readings where the BMS is still balancing. */
   dischargeDelta:  number | null;
   tempStatus:      HealthStatus | null;
   tempMax:         number | null;
@@ -199,43 +244,24 @@ export interface AutonomyPerBattery {
   sn:                   string;
   alias:                string;
   remainingKwh:         number;
-  /** Hours until this battery reaches minSocPct at current discharge rate. */
   estimatedHours:       number;
-  /** Hours until this battery reaches 100% at current charge rate. null if not charging. */
   estimatedHoursToFull: number | null;
 }
 
 export interface AutonomyResult {
-  totalRemainingKwh:    number;
-  dischargeRateKw:      number;
-  /** Hours until fleet reaches minSocPct at current discharge rate. */
-  estimatedHours:       number;
-  /** Hours until fleet reaches 100% at current charge rate. null if not charging. */
-  estimatedHoursToFull: number | null;
-  /** Estimated SOC (%) at sunriseAt. null if sunriseAt or packCapacityKwh not provided. */
+  totalRemainingKwh:     number;
+  dischargeRateKw:       number;
+  estimatedHours:        number;
+  estimatedHoursToFull:  number | null;
   estimatedSocAtSunrise: number | null;
-  /** Per-battery breakdown. */
-  perBattery:           AutonomyPerBattery[];
+  perBattery:            AutonomyPerBattery[];
 }
 
 export interface AutonomyOptions {
-  /** ISO string or Date of next sunrise. Required for estimatedSocAtSunrise. */
-  sunriseAt?:         string | Date | null;
-  /** Total pack capacity in kWh. Required for estimatedSocAtSunrise. */
-  packCapacityKwh?:   number | null;
-  /** Minimum SOC % the battery stops at (default 5). */
-  minSocPct?:         number;
-  /** Fallback discharge rate kW when not actively discharging and no night snapshots (default 1.5). */
+  sunriseAt?:          string | Date | null;
+  packCapacityKwh?:    number | null;
+  minSocPct?:          number;
   defaultDischargeKw?: number;
-}
-
-export interface MaterializedState {
-  updatedAt: string;
-  batteries: Battery[];
-  trends:    Record<string, BalanceTrend>;
-  health:    Record<string, BatteryHealth>;
-  autonomy:  AutonomyResult;
-  fleet:     FleetSummary;
 }
 
 /** Compute per-battery health metrics from live batteries and recent snapshots. */
@@ -244,62 +270,84 @@ export declare function computeHealth(
   snapshots:  BatterySnapshot[]
 ): Record<string, BatteryHealth>;
 
-/** Compute fleet autonomy estimate.
- *  Pass sunriseAt + packCapacityKwh to get estimatedSocAtSunrise, otherwise it is null. */
+/** Compute fleet autonomy estimate. */
 export declare function computeAutonomy(
   batteries: Battery[],
   snapshots:  BatterySnapshot[],
   opts?:      AutonomyOptions
 ): AutonomyResult;
 
+// ── State ─────────────────────────────────────────────────────────────────────
+
+export interface MaterializedState {
+  updatedAt: string;
+  batteries: Battery[];
+  trend:     Record<string, BalanceTrend>;
+  health:    Record<string, BatteryHealth>;
+  autonomy:  AutonomyResult;
+}
+
 /** Read the pre-computed materialized state written by startPoller. Returns null if not yet available. */
-export declare function readState(): MaterializedState | null;
+export declare function readState(): Promise<MaterializedState | null>;
 
 /** Start a background poller that calls getBatteries() at the configured interval,
- *  writes snapshots, and materializes computed state to battery-state.json.
- *  Controlled by env vars: FELICITY_SNAPSHOT_ENABLED, FELICITY_SNAPSHOT_MS,
- *  FELICITY_SNAPSHOT_DAYS, FELICITY_DAILY_DAYS.
- *  Returns a stop function. */
-export declare function startPoller(client: FelicityClient): () => void;
+ *  writes snapshots, and materializes computed state to battery-state.json. */
+export declare function startPoller(
+  client: FelicityClient,
+  opts?: { snapshotStore?: BatterySnapshotStore; hookStore?: HookStore }
+): { stop(): void };
 
-export interface SnapshotPayload {
-  batteries: Battery[];
-  health:    Record<string, BatteryHealth>;
-  /** ISO string of when the snapshot was emitted (not necessarily when data was fetched — check batteries[n].dataTime for freshness). */
-  ts:        string;
-}
-
-export interface HookPayload {
-  event:     string;
-  battery:   string;
-  sn:        string;
-  value:     number | null;
-  threshold: number | null;
-  ts:        string;
-}
-
-export interface HookSubscription {
-  id:        string;
-  url:       string;
-  /** If empty array, subscribes to all events. */
-  events:    string[];
-  params:    Record<string, unknown>;
-  createdAt: string;
-}
-
-export declare class HookStore {
-  add(opts: { url: string; events?: string[]; params?: Record<string, unknown> }): HookSubscription;
-  remove(id: string): boolean;
-  list(): HookSubscription[];
-  fire(batteries: Battery[], health: Record<string, BatteryHealth>): Promise<void>;
-  fireSnapshot(payload: SnapshotPayload): Promise<void>;
-}
-
-export declare const hookStore:          HookStore;
-export declare const snapshotStore:      BatterySnapshotStore;
-export declare const dailySnapshotStore: DailySnapshotStore;
-
-/** EventEmitter that fires a 'snapshot' event every FELICITY_SNAPSHOT_MS (default 5 min).
- *  Payload is SnapshotPayload — the last data fetched by the poller.
- *  Use this for same-process subscriptions; register a hook URL for cross-process delivery. */
+/** EventEmitter that fires a 'snapshot' event every FELICITY_TELEMETRY_MS (default 5 min). */
 export declare const snapshotEmitter: import('events').EventEmitter;
+
+// ── Server ────────────────────────────────────────────────────────────────────
+
+export interface Logger {
+  info(msg: string, fields?: Record<string, unknown>): void;
+  warn(msg: string, fields?: Record<string, unknown>): void;
+  error(msg: string, fields?: Record<string, unknown>): void;
+}
+
+export interface LoggerOptions {
+  write?: (line: string) => void;
+}
+
+export declare function createLogger(opts?: LoggerOptions): Logger;
+export declare const logger: Logger;
+
+export interface ServerOptions {
+  apiKey?:       string;
+  rateLimit?:    number;
+  corsOrigin?:   string;
+  trustProxy?:   boolean;
+  port?:         number;
+  snapshotStore?: BatterySnapshotStore;
+  hookStore?:     HookStore;
+  logger?:        Logger;
+}
+
+export interface ServerResult {
+  httpServer:    import('http').Server;
+  mcp:           object;
+  setPollError(err: Error | string | null): void;
+  close():       Promise<void>;
+}
+
+export declare function createServer(client: FelicityClient, opts?: ServerOptions): ServerResult;
+
+export declare function startServer(
+  client: FelicityClient,
+  opts?:  ServerOptions
+): Promise<{ port: number; url: string; setPollError(err: Error | string | null): void; close(): Promise<void> }>;
+
+// ── Misc exports ──────────────────────────────────────────────────────────────
+
+export declare function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery;
+export declare const HOOK_COOLDOWNS_H:       Record<string, number>;
+export declare const resolveSnapshotConfig:  () => { enabled: boolean; ms: number; maxIntra: number; ddays: number };
+export declare const HEALTH_CELL_DELTA_WARN: number;
+export declare const HEALTH_CELL_DELTA_CRIT: number;
+export declare const HEALTH_TEMP_WARN:       number;
+export declare const HEALTH_TEMP_CRIT:       number;
+export declare const HEALTH_OUTLIER_MV:      number;
+export declare const HEALTH_SOH_WARN:        number;

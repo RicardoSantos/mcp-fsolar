@@ -13,6 +13,8 @@ const { computeHealth, computeAutonomy,
         HEALTH_TEMP_WARN, HEALTH_TEMP_CRIT,
         HEALTH_OUTLIER_MV, HEALTH_SOH_WARN }              = require("./src/compute");
 const { startPoller, readState }                          = require("./src/state");
+const { ChargingState, HealthStatus, TrendDirection,
+        HookEvent }                                       = require("./src/enums");
 
 module.exports = {
   FelicityClient,
@@ -28,6 +30,11 @@ module.exports = {
   computeHealth,
   computeAutonomy,
   buildBattery,
+  // enums
+  ChargingState,
+  HealthStatus,
+  TrendDirection,
+  HookEvent,
   // advanced / internal exports
   HookStore,
   resolveSnapshotConfig,

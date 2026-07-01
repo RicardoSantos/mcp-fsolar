@@ -1,3 +1,41 @@
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+export declare const ChargingState: {
+  readonly CHARGING:    "charging";
+  readonly DISCHARGING: "discharging";
+  readonly STANDBY:     "standby";
+};
+export type ChargingState = typeof ChargingState[keyof typeof ChargingState];
+
+export declare const HealthStatus: {
+  readonly OK:   "ok";
+  readonly WARN: "warn";
+  readonly CRIT: "crit";
+};
+export type HealthStatus = typeof HealthStatus[keyof typeof HealthStatus];
+
+export declare const TrendDirection: {
+  readonly IMPROVING: "improving";
+  readonly STABLE:    "stable";
+  readonly DEGRADING: "degrading";
+};
+export type TrendDirection = typeof TrendDirection[keyof typeof TrendDirection];
+
+export declare const HookEvent: {
+  readonly CELL_DELTA_CRIT: "cell_delta_crit";
+  readonly CELL_DELTA_WARN: "cell_delta_warn";
+  readonly TEMP_CRIT:       "temp_crit";
+  readonly TEMP_WARN:       "temp_warn";
+  readonly SOH_WARN:        "soh_warn";
+  readonly LOW_SOC:         "low_soc";
+  readonly FULL:            "full";
+  readonly ONLINE:          "online";
+  readonly OFFLINE:         "offline";
+};
+export type HookEvent = typeof HookEvent[keyof typeof HookEvent];
+
+// ── Interfaces ────────────────────────────────────────────────────────────────
+
 export interface BatteryModule {
   index: number;   // 1-4
   cells: number[]; // mV × 4
@@ -17,7 +55,7 @@ export interface Battery {
   voltage:        number;   // V
   current:        number;   // A
   power:          number;   // W  (positive = charging, negative = discharging)
-  chargingState:  "charging" | "discharging" | "standby";
+  chargingState:  ChargingState;
   tempMax:        number;   // °C
   tempMin:        number;   // °C
   cellTemps:      number[]; // °C — 4 physical sensors (3276.7 sentinel filtered out)
@@ -70,7 +108,7 @@ export interface BatterySnapshot {
 }
 
 export interface BalanceTrend {
-  direction:              "improving" | "stable" | "degrading";
+  direction:              TrendDirection;
   deltaChange:            number;
   history:                number[];
   balancingCount:         number;
@@ -142,15 +180,15 @@ export interface FleetSummary {
 
 export interface BatteryHealth {
   alias:           string;
-  cellDeltaStatus: "ok" | "warn" | "crit" | null;
+  cellDeltaStatus: HealthStatus | null;
   cellDelta:       number | null;
   /** Median cell delta from discharge-only snapshots (delta < 30 mV).
    *  Excludes top-of-charge readings where the BMS is still balancing.
    *  null if fewer than 3 qualifying snapshots. */
   dischargeDelta:  number | null;
-  tempStatus:      "ok" | "warn" | "crit" | null;
+  tempStatus:      HealthStatus | null;
   tempMax:         number | null;
-  sohStatus:       "ok" | "warn" | null;
+  sohStatus:       Exclude<HealthStatus, "crit"> | null;
   soh:             number | null;
   outliers:        number[];   // 1-based cell indices persistently below pack avg
   avgCRate:        number | null;

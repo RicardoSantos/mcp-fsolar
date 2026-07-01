@@ -1,6 +1,7 @@
 "use strict";
 
-const { clamp } = require("./helpers");
+const { clamp }        = require("./helpers");
+const { HealthStatus } = require("./enums");
 
 const HEALTH_CELL_DELTA_WARN = 120;  // mV
 const HEALTH_CELL_DELTA_CRIT = 200;  // mV
@@ -24,16 +25,16 @@ function computeHealth(batteries, snapshots) {
 
   for (const bat of batteries) {
     const cellDeltaStatus = bat.cellDelta == null ? null
-      : bat.cellDelta >= HEALTH_CELL_DELTA_CRIT ? "crit"
-      : bat.cellDelta >= HEALTH_CELL_DELTA_WARN ? "warn"
-      : "ok";
+      : bat.cellDelta >= HEALTH_CELL_DELTA_CRIT ? HealthStatus.CRIT
+      : bat.cellDelta >= HEALTH_CELL_DELTA_WARN ? HealthStatus.WARN
+      : HealthStatus.OK;
 
     const tempStatus = bat.tempMax == null ? null
-      : bat.tempMax >= HEALTH_TEMP_CRIT ? "crit"
-      : bat.tempMax >= HEALTH_TEMP_WARN ? "warn"
-      : "ok";
+      : bat.tempMax >= HEALTH_TEMP_CRIT ? HealthStatus.CRIT
+      : bat.tempMax >= HEALTH_TEMP_WARN ? HealthStatus.WARN
+      : HealthStatus.OK;
 
-    const sohStatus = bat.soh == null ? null : bat.soh < HEALTH_SOH_WARN ? "warn" : "ok";
+    const sohStatus = bat.soh == null ? null : bat.soh < HEALTH_SOH_WARN ? HealthStatus.WARN : HealthStatus.OK;
 
     const batSnaps = snapsBySn.get(bat.sn) ?? [];
 

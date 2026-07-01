@@ -19,7 +19,7 @@ const os   = require("os");
 const { McpServer }          = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport }  = require("@modelcontextprotocol/sdk/server/sse.js");
 const { z }                  = require("zod");
-const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, hookStore, startPoller, readState } = require("./index.js");
+const { FelicityClient, MemoryCacheAdapter, snapshotStore, dailySnapshotStore, hookStore, startPoller, readState, TrendDirection } = require("./index.js");
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -161,7 +161,7 @@ mcp.tool(
   { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
   async ({ id } = {}) => {
     const { batteries } = await client.getBatteries();
-    const arrow = (d) => d === "improving" ? "↓" : d === "degrading" ? "↑" : "→";
+    const arrow = (d) => d === TrendDirection.IMPROVING ? "↓" : d === TrendDirection.DEGRADING ? "↑" : "→";
     let entries;
     if (id) {
       const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);

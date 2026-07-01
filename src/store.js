@@ -4,6 +4,7 @@ const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
 const { clamp, pickSnapshotFields } = require("./helpers");
+const { TrendDirection }            = require("./enums");
 
 // ── Snapshot config ───────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ class BatterySnapshotStore extends SnapshotStore {
       else break;
     }
     return {
-      direction:              change < -3 ? "improving" : change > 3 ? "degrading" : "stable",
+      direction:              change < -3 ? TrendDirection.IMPROVING : change > 3 ? TrendDirection.DEGRADING : TrendDirection.STABLE,
       deltaChange:            change,
       history:                deltas,
       balancingCount:         history.filter((b) => b.isBalancing).length,

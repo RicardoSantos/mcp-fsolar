@@ -312,3 +312,61 @@ The receiver maps the `event` field to the appropriate notification call. This e
 | Variable | Default | Description |
 |---|---|---|
 | `SNAPSHOT_DIR` | `os.tmpdir()` | Directory for all JSON persistence files: `battery-snapshots.json`, `battery-daily.json`, `battery-state.json`, `battery-hooks.json`. Mount a Docker volume here for durability. |
+
+---
+
+## String enums
+
+All discriminant strings used in public APIs are exported as frozen objects from the package. Use the constants instead of bare strings to get autocomplete and catch typos at compile time.
+
+```js
+import { ChargingState, HealthStatus, TrendDirection, HookEvent } from 'fsolar-mcp'
+```
+
+### `ChargingState`
+
+Values produced by `Battery.chargingState`. Derived from `bmsChargingState` register (1 = charging, 2 = discharging, anything else = standby).
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `ChargingState.CHARGING` | `"charging"` | BMS register = 1 — battery is accepting charge current |
+| `ChargingState.DISCHARGING` | `"discharging"` | BMS register = 2 — battery is supplying load current |
+| `ChargingState.STANDBY` | `"standby"` | Any other BMS state — no significant current flow |
+
+### `HealthStatus`
+
+Severity level produced by `computeHealth()` for cell delta, temperature, and SOH checks. SOH only reaches `WARN`, never `CRIT`.
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `HealthStatus.OK` | `"ok"` | Below warning threshold |
+| `HealthStatus.WARN` | `"warn"` | Above warning threshold, below critical |
+| `HealthStatus.CRIT` | `"crit"` | Above critical threshold — immediate attention recommended |
+
+### `TrendDirection`
+
+Direction produced by `BatterySnapshotStore.getTrend()` / `getAllTrends()`. Computed from the change in cell delta (mV) between the oldest and newest snapshot in the window.
+
+| Constant | Value | Condition | Meaning |
+|---|---|---|---|
+| `TrendDirection.IMPROVING` | `"improving"` | `deltaChange < −3 mV` | Cell spread narrowing — balancing is working |
+| `TrendDirection.STABLE` | `"stable"` | `−3 mV ≤ deltaChange ≤ +3 mV` | No significant change |
+| `TrendDirection.DEGRADING` | `"degrading"` | `deltaChange > +3 mV` | Cell spread widening — investigate |
+
+### `HookEvent`
+
+Event identifiers used in webhook subscriptions and payloads. Pass one or more in the `events` array when registering a hook; omit the array to receive all events.
+
+| Constant | Value | Trigger condition | Default cooldown |
+|---|---|---|---|
+| `HookEvent.CELL_DELTA_CRIT` | `"cell_delta_crit"` | `cellDelta ≥ 200 mV` | 1 h |
+| `HookEvent.CELL_DELTA_WARN` | `"cell_delta_warn"` | `cellDelta ≥ 120 mV` | 4 h |
+| `HookEvent.TEMP_CRIT` | `"temp_crit"` | `tempMax ≥ 50 °C` | 1 h |
+| `HookEvent.TEMP_WARN` | `"temp_warn"` | `tempMax ≥ 40 °C` | 4 h |
+| `HookEvent.SOH_WARN` | `"soh_warn"` | `soh < 90 %` | 24 h |
+| `HookEvent.LOW_SOC` | `"low_soc"` | _(reserved — not yet fired)_ | 2 h |
+| `HookEvent.FULL` | `"full"` | _(reserved — not yet fired)_ | 8 h |
+| `HookEvent.ONLINE` | `"online"` | _(reserved — not yet fired)_ | 1 h |
+| `HookEvent.OFFLINE` | `"offline"` | _(reserved — not yet fired)_ | 1 h |
+
+Cooldowns are per `(hook id, event, battery SN)` triple and persisted in `battery-hook-cooldowns.json`.

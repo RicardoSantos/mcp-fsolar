@@ -1,6 +1,7 @@
 "use strict";
 
 const { nullableInt, nullableFloat } = require("./helpers");
+const { ChargingState }              = require("./enums");
 
 function buildBattery(device, snap) {
   const cells = (snap.bmsVoltageList ?? []).map(Number);
@@ -25,9 +26,9 @@ function buildBattery(device, snap) {
     voltage:       parseFloat(snap.battVolt   ?? "0"),
     current:       parseFloat(snap.battCurr   ?? "0"),
     power:         parseFloat(snap.bmsPower   ?? device.bmsPower ?? "0"),
-    chargingState: snap.bmsChargingState === 1 ? "charging"
-                 : snap.bmsChargingState === 2 ? "discharging"
-                 : "standby",
+    chargingState: snap.bmsChargingState === 1 ? ChargingState.CHARGING
+                 : snap.bmsChargingState === 2 ? ChargingState.DISCHARGING
+                 : ChargingState.STANDBY,
     tempMax:       parseFloat(snap.tempMax ?? "0"),
     tempMin:       parseFloat(snap.tempMin ?? "0"),
     cellTemps,

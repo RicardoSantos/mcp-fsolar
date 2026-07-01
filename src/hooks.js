@@ -13,18 +13,19 @@ const {
   HEALTH_TEMP_CRIT,
   HEALTH_SOH_WARN,
 } = require("./compute");
+const { HealthStatus, HookEvent } = require("./enums");
 
 // Default cooldowns in hours per event type
 const HOOK_COOLDOWNS_H = {
-  cell_delta_crit: 1,
-  cell_delta_warn: 4,
-  temp_crit:       1,
-  temp_warn:       4,
-  soh_warn:       24,
-  low_soc:         2,
-  full:            8,
-  online:          1,
-  offline:         1,
+  [HookEvent.CELL_DELTA_CRIT]: 1,
+  [HookEvent.CELL_DELTA_WARN]: 4,
+  [HookEvent.TEMP_CRIT]:       1,
+  [HookEvent.TEMP_WARN]:       4,
+  [HookEvent.SOH_WARN]:       24,
+  [HookEvent.LOW_SOC]:         2,
+  [HookEvent.FULL]:            8,
+  [HookEvent.ONLINE]:          1,
+  [HookEvent.OFFLINE]:         1,
 };
 
 function _hookFile() {
@@ -115,11 +116,11 @@ class HookStore {
       if (!h) continue;
 
       const checks = [
-        { event: "cell_delta_crit", match: h.cellDeltaStatus === "crit",  threshold: HEALTH_CELL_DELTA_CRIT },
-        { event: "cell_delta_warn", match: h.cellDeltaStatus === "warn",  threshold: HEALTH_CELL_DELTA_WARN },
-        { event: "temp_crit",       match: h.tempStatus       === "crit", threshold: HEALTH_TEMP_CRIT },
-        { event: "temp_warn",       match: h.tempStatus       === "warn", threshold: HEALTH_TEMP_WARN },
-        { event: "soh_warn",        match: h.sohStatus        === "warn", threshold: HEALTH_SOH_WARN },
+        { event: HookEvent.CELL_DELTA_CRIT, match: h.cellDeltaStatus === HealthStatus.CRIT, threshold: HEALTH_CELL_DELTA_CRIT },
+        { event: HookEvent.CELL_DELTA_WARN, match: h.cellDeltaStatus === HealthStatus.WARN, threshold: HEALTH_CELL_DELTA_WARN },
+        { event: HookEvent.TEMP_CRIT,       match: h.tempStatus       === HealthStatus.CRIT, threshold: HEALTH_TEMP_CRIT },
+        { event: HookEvent.TEMP_WARN,       match: h.tempStatus       === HealthStatus.WARN, threshold: HEALTH_TEMP_WARN },
+        { event: HookEvent.SOH_WARN,        match: h.sohStatus        === HealthStatus.WARN, threshold: HEALTH_SOH_WARN },
       ];
 
       for (const c of checks) {

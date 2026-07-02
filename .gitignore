@@ -1,2 +1,11 @@
 .env
 node_modules/
+
+# compiled output — built by CI before publish, not committed
+dist/
+
+# internal planning documents
+PLAN.md
+
+# scratch / old probes
+probe.ts

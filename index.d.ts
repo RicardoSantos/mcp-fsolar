@@ -250,10 +250,14 @@ export interface AutonomyPerBattery {
 
 export interface AutonomyResult {
   totalRemainingKwh:     number;
+  totalCapacityKwh:      number;
   dischargeRateKw:       number;
   estimatedHours:        number;
   estimatedHoursToFull:  number | null;
   estimatedSocAtSunrise: number | null;
+  hoursToSunrise:        number | null;
+  estimatedDischargeKwh: number | null;
+  estimatedRemainingKwh: number | null;
   perBattery:            AutonomyPerBattery[];
 }
 

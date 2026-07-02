@@ -100,6 +100,8 @@ http://localhost:3010/sse
 
 The MCP message endpoint is `http://localhost:3010/messages?sessionId=<id>` (handled automatically by the SDK).
 
+> **Auth note:** when `FELICITY_API_KEY` is set, `/sse` requires the same auth header as every other endpoint. Add `"X-API-Key": "your-key"` to your MCP client's SSE headers config.
+
 ### MCP tools
 
 | Tool | Description |
@@ -110,6 +112,17 @@ The MCP message endpoint is `http://localhost:3010/messages?sessionId=<id>` (han
 | `get_fleet_summary` | Compact health summary: total energy, worst cell delta, temperatures |
 | `get_balance_trend` | Cell delta trend over the last ~60 min (improving / stable / degrading) |
 | `get_snapshots` | Raw snapshots for the last ~60 min (one per ~10 min) |
+| `get_health` | Per-battery health: cell delta status, temperature, SOH, outlier cells, C-rate |
+| `get_autonomy` | Fleet autonomy: hours until pack hits minSoc, hours to full, SOC-at-sunrise projection |
+| `get_alerts` | Active alert list ranked by severity (CRIT/WARN/INFO) |
+| `get_energy_history` | Daily charge/discharge kWh totals up to 90 days — peak power and net balance |
+| `get_cell_stats` | Per-cell voltage statistics: mean, stddev, min/max, deviation from pack average, trend |
+| `get_module_health` | Per-module voltage aggregates (min/max/mean/delta) with outlier-cell flags |
+| `get_limit_headroom` | Headroom to BMS protection limits — voltage and current headroom per battery |
+| `get_lifetime_stats` | Cycle count, full-charge events, under-voltage events, remaining LFP cycle life |
+| `get_capacity_estimate` | Estimated real capacity vs rated capacity per battery |
+| `get_power_stats` | Peak/average charge and discharge kW, C-rate, fraction above 0.5C |
+| `get_cost_savings` | Estimated monetary savings from discharged energy × tariff |
 
 ---
 
@@ -128,6 +141,16 @@ FELICITY_USER=you@example.com FELICITY_PASS=yourpass fsolar-mcp
 |---|---|---|
 | `GET` | `/batteries` | All batteries — SOC, power, voltage, temperature, charging state |
 | `GET` | `/batteries/:id` | One battery by alias (`Bat1`) or serial number |
+| `GET` | `/batteries/:id/cell-stats` | Per-cell voltage statistics from intraday snapshots |
+| `GET` | `/batteries/:id/module-health` | Per-module voltage aggregates with outlier flags |
+| `GET` | `/alerts` | Active alert list ranked by severity (`?id=` to filter one battery) |
+| `GET` | `/energy` | Daily charge/discharge kWh history up to 90 days |
+| `GET` | `/limit-headroom` | Voltage/current headroom to BMS limits (`?id=` to filter) |
+| `GET` | `/lifetime-stats` | Cycle count, full-charges, under-voltage events (`?id=` to filter) |
+| `GET` | `/capacity` | Estimated vs rated capacity with degradation % (`?id=` to filter) |
+| `GET` | `/power-stats` | Peak/average power and C-rate statistics from snapshots |
+| `GET` | `/cost-savings` | Energy savings estimate (`?tariff=` override, else `FELICITY_TARIFF_KWH`) |
+| `GET` | `/events` | Real-time SSE stream — `snapshot` events every 30 s; `state` on connect |
 | `GET` | `/snapshots/intraday` | Download intraday snapshot store (JSON file) |
 | `GET` | `/snapshots/daily` | Download daily snapshot store (JSON file) |
 | `GET` | `/snapshots/state` | Download latest persisted state (JSON file) |
@@ -136,8 +159,10 @@ FELICITY_USER=you@example.com FELICITY_PASS=yourpass fsolar-mcp
 | `DELETE` | `/snapshots/all` | Clear all snapshot stores |
 | `POST` | `/hooks` | Register a webhook URL |
 | `GET` | `/hooks` | List registered webhooks |
+| `GET` | `/hooks/:id/deliveries` | Delivery log for a hook (last 50, newest first) |
 | `DELETE` | `/hooks/:id` | Remove a webhook |
-| `GET` | `/sse` | MCP SSE endpoint |
+| `GET` | `/health` | Server health — uptime, version, last poll error |
+| `GET` | `/sse` | MCP SSE transport endpoint (requires auth when `FELICITY_API_KEY` is set) |
 
 ### Examples
 
@@ -244,9 +269,15 @@ import type {
   MaterializedState,
   SnapshotPayload,
   CacheAdapter,
+  // Analytics
+  Alert, EnergyDay, CellStat, PowerStats,
+  // Persistent energy store
+  DailyEnergy,
 } from 'fsolar-mcp'
 
-import { ChargingState, HealthStatus, TrendDirection, HookEvent } from 'fsolar-mcp'
+import { ChargingState, HealthStatus, TrendDirection, HookEvent,
+         AlertSeverity } from 'fsolar-mcp'
+import { DailyEnergyStore, dailyEnergyStore } from 'fsolar-mcp'
 ```
 
 ### `Battery`
@@ -476,6 +507,77 @@ interface SnapshotPayload {
 }
 ```
 
+### `Alert`
+
+Returned as an array by `computeAlerts(batteries, health)` and by `GET /alerts`.
+
+```ts
+interface Alert {
+  severity: "crit" | "warn" | "info"
+  battery:  string           // alias
+  code:     string           // machine-readable key e.g. "cell_delta_crit"
+  message:  string           // human-readable description
+}
+
+const AlertSeverity = { CRIT: "crit", WARN: "warn", INFO: "info" } as const
+```
+
+### `EnergyDay`
+
+One day's energy totals — returned by `computeEnergyHistory(snapshots)` and `GET /energy`.
+
+```ts
+interface EnergyDay {
+  date:            string  // "YYYY-MM-DD"
+  kwhCharged:      number
+  kwhDischarged:   number
+  kwhNet:          number  // charged − discharged (positive = net import)
+  peakChargeKw:    number
+  peakDischargeKw: number
+  snapshotCount:   number
+}
+```
+
+### `DailyEnergyStore`
+
+Persistent 90-day energy accumulator — singleton exported as `dailyEnergyStore`.
+
+```ts
+class DailyEnergyStore {
+  update(entries: DailyEnergy[]): void  // merge new entries; old days are never overwritten
+  get(): DailyEnergy[]                  // sorted by date ascending
+}
+```
+
+### `CellStat` / `PowerStats`
+
+Returned by `computeCellStats(snapshots, sn)` and `computePowerStats(snapshots, batteries)`.
+
+```ts
+interface CellStat {
+  cell:          number   // 1-based index
+  module:        number   // 1-based module number
+  mean:          number   // average voltage (mV)
+  stddev:        number   // standard deviation (mV)
+  min:           number
+  max:           number
+  meanDeviation: number   // mean − pack average (mV)
+  trend:         "improving" | "stable" | "degrading"
+}
+
+interface PowerStats {
+  totalSamples:      number
+  chargeSamples:     number
+  dischargeSamples:  number
+  peakChargeKw:      number
+  avgChargeKw:       number
+  peakDischargeKw:   number
+  avgDischargeKw:    number
+  avgCRate:          number | null   // null when no ratedEnergyKwh available
+  pctAboveHalfC:     number | null
+}
+```
+
 ### Enums
 
 All discriminant strings are exported as frozen const objects — use them instead of bare strings for autocomplete and compile-time safety.
@@ -499,16 +601,21 @@ TrendDirection.STABLE     // "stable"
 TrendDirection.DEGRADING  // "degrading"
 
 // HookEvent
-HookEvent.CELL_DELTA_CRIT  // "cell_delta_crit"
-HookEvent.CELL_DELTA_WARN  // "cell_delta_warn"
-HookEvent.TEMP_CRIT        // "temp_crit"
-HookEvent.TEMP_WARN        // "temp_warn"
-HookEvent.SOH_WARN         // "soh_warn"
-HookEvent.LOW_SOC          // "low_soc"
-HookEvent.FULL             // "full"
-HookEvent.ONLINE           // "online"
-HookEvent.OFFLINE          // "offline"
-HookEvent.SNAPSHOT         // "snapshot"
+HookEvent.CELL_DELTA_CRIT     // "cell_delta_crit"
+HookEvent.CELL_DELTA_WARN     // "cell_delta_warn"
+HookEvent.TEMP_CRIT           // "temp_crit"
+HookEvent.TEMP_WARN           // "temp_warn"
+HookEvent.SOH_WARN            // "soh_warn"
+HookEvent.LOW_SOC             // "low_soc"
+HookEvent.FULL                // "full"
+HookEvent.ONLINE              // "online"
+HookEvent.OFFLINE             // "offline"
+HookEvent.OUTLIER             // "outlier"
+HookEvent.BMS_WARNINGS        // "bms_warnings"
+HookEvent.UNDERVOLTAGE_EVENTS // "undervoltage_events"
+HookEvent.STALE_DATA          // "stale_data"
+HookEvent.ALERT               // "alert"  — fleet catch-all
+HookEvent.SNAPSHOT            // "snapshot"
 ```
 
 Types match their string values — `battery.chargingState === ChargingState.CHARGING` compiles and narrows correctly.
@@ -541,6 +648,22 @@ curl -X POST http://localhost:3010/hooks \
   -d '{"url": "https://your-server.com/webhook", "events": ["cell_delta_crit", "snapshot"]}'
 ```
 
+### Real-time SSE stream
+
+Connect any browser or HTTP client to `GET /events` for a live push feed:
+
+```js
+const es = new EventSource('http://localhost:3010/events', {
+  headers: { 'X-API-Key': 'your-key' }
+})
+es.addEventListener('state',    (e) => console.log('initial:', JSON.parse(e.data)))
+es.addEventListener('snapshot', (e) => console.log('tick:',    JSON.parse(e.data)))
+```
+
+- `event: state` — sent once on connect with the last persisted `MaterializedState`
+- `event: snapshot` — sent every poll tick (~30 s) with `{ batteries, health, ts }`
+- Reconnects automatically using `retry: 5000` in the stream header
+
 ### EventEmitter (same-process)
 
 Subscribe directly in Node.js without an HTTP round-trip:
@@ -549,29 +672,47 @@ Subscribe directly in Node.js without an HTTP round-trip:
 import { startPoller, snapshotEmitter } from 'fsolar-mcp'
 
 snapshotEmitter.on('snapshot', ({ batteries, health, ts }) => {
-  // fires every FELICITY_TELEMETRY_MS (default 5 min)
+  // fires every poll tick (~30 s by default)
   console.log(batteries[0].soc, health)
 })
 
 startPoller(client)
 ```
 
+The `startPoller` `onTick` callback is useful for integrating poll errors into a larger application:
+
+```ts
+startPoller(client, {
+  onTick: (err, batteries) => {
+    if (err) myMonitoring.recordError(err)
+    else     myMonitoring.recordSuccess(batteries!.length)
+  },
+})
+```
+
 ### Hook events
 
-| Event | Trigger | Cooldown |
-|---|---|---|
-| `cell_delta_crit` | Cell delta ≥ 200 mV | 1 h |
-| `cell_delta_warn` | Cell delta ≥ 120 mV | 4 h |
-| `temp_crit` | tempMax ≥ 50 °C | 1 h |
-| `temp_warn` | tempMax ≥ 40 °C | 4 h |
-| `soh_warn` | SOH < 90 % | 24 h |
-| `low_soc` | SOC ≤ `FELICITY_LOW_SOC_PCT` % (default 20) _(reserved)_ | 2 h |
-| `full` | SOC reaches 100 % _(reserved)_ | 8 h |
-| `online` | Battery comes online _(reserved)_ | 1 h |
-| `offline` | Battery goes offline _(reserved)_ | 1 h |
-| `snapshot` | Time-based (every `FELICITY_TELEMETRY_MS`) | none |
+| Event | Trigger | Payload extras | Cooldown |
+|---|---|---|---|
+| `cell_delta_crit` | Cell delta ≥ 200 mV | `sn`, `alias`, `value`, `threshold` | 1 h |
+| `cell_delta_warn` | Cell delta ≥ 120 mV | `sn`, `alias`, `value`, `threshold` | 4 h |
+| `temp_crit` | tempMax ≥ 50 °C | `sn`, `alias`, `value`, `threshold` | 1 h |
+| `temp_warn` | tempMax ≥ 40 °C | `sn`, `alias`, `value`, `threshold` | 4 h |
+| `soh_warn` | SOH < 90 % | `sn`, `alias`, `value`, `threshold` | 24 h |
+| `low_soc` | SOC ≤ `FELICITY_LOW_SOC_PCT` % (default 20) | `sn`, `alias`, `value`, `threshold` | 2 h |
+| `full` | SOC = 100 % + standby | `sn`, `alias` | 8 h |
+| `online` | Battery appears after absence | `sn`, `alias` | 1 h |
+| `offline` | Battery disappears | `sn`, `alias` | 1 h |
+| `outlier` | Persistent outlier cells detected | `sn`, `alias` | 24 h |
+| `bms_warnings` | BMS active warning count > 0 | `sn`, `alias` | 4 h |
+| `undervoltage_events` | Cumulative under-voltage counter > 0 | `sn`, `alias` | 24 h |
+| `stale_data` | Last BMS report > 30 min old | `sn`, `alias` | 2 h |
+| `alert` | Fleet catch-all — any alert active or new alerts appeared | `alerts[]`, `newAlerts[]`, `count`, `newCount` | 1 h (bypassed for new alerts) |
+| `snapshot` | Time-based (every `FELICITY_TELEMETRY_MS`, default 5 min) | full `SnapshotPayload` | none |
 
-Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TEMP_WARN`, etc. — see [docs/ALGORITHMS.md](./docs/ALGORITHMS.md)). Events marked _reserved_ are defined but not yet fired by the poller.
+Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TEMP_WARN`, etc. — see [docs/ALGORITHMS.md](./docs/ALGORITHMS.md)).
+
+The `alert` event is diff-based: it fires immediately when a new alert code appears (bypassing the 1 h cooldown), and then on the cooldown schedule while the same alerts persist. The `newAlerts[]` field contains only the newly-appeared alerts since the last tick; `alerts[]` is the full current list.
 
 ---
 
@@ -582,7 +723,7 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 | `FELICITY_USER` | Yes | — | Felicity Solar account email |
 | `FELICITY_PASS` | Yes | — | Felicity Solar account password |
 | `FELICITY_PORT` | No | `3010` | HTTP server port |
-| `FELICITY_API_KEY` | No | — | If set, all REST requests must supply `Authorization: Bearer <key>` or `X-API-Key: <key>` |
+| `FELICITY_API_KEY` | No | — | If set, all REST + MCP SSE requests must supply `Authorization: Bearer <key>` or `X-API-Key: <key>` |
 | `FELICITY_CORS_ORIGIN` | No | localhost origins only | Allowed CORS origin. Set to `*` to open fully, or an explicit origin to lock down |
 | `FELICITY_RATE_LIMIT` | No | `60` | Max REST requests per minute per IP. Set to `0` to disable |
 | `FELICITY_POLL_MS` | No | `30000` | Felicity API poll interval (ms) |
@@ -594,7 +735,7 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 | `FELICITY_SNAPSHOT_MS` | No | `600000` | Snapshot store interval (ms, min 60 000) |
 | `FELICITY_SNAPSHOT_DAYS` | No | `3` | Intra-day snapshot retention (days) |
 | `FELICITY_DAILY_DAYS` | No | `90` | Daily snapshot retention (days) |
-| `SNAPSHOT_DIR` | No | `os.tmpdir()` | Directory for snapshot JSON files (`battery-snapshots.json`, `battery-daily.json`, `battery-state.json`) |
+| `SNAPSHOT_DIR` | No | `os.tmpdir()` | Directory for all persisted JSON files: `battery-snapshots.json`, `battery-daily.json`, `battery-state.json`, `battery-energy.json`, `battery-hooks.json`, `battery-hook-cooldowns.json`, `battery-hook-retries.json` |
 
 ---
 

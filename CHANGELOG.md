@@ -7,6 +7,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.27] — 2026-07-02
+
+### Added
+- `get_alerts` MCP tool — severity-ranked alert list (CRIT/WARN/INFO): cell imbalance, temperature, SOH, outlier cells, BMS warnings, under-voltage events, stale data
+- `get_energy_history` MCP tool — daily charge/discharge kWh totals, peak power, and net energy balance from intraday snapshots
+- `get_cell_stats` MCP tool — per-cell voltage statistics (mean, stddev, min/max, pack deviation, trend direction) over the snapshot window
+- `get_module_health` MCP tool — per-module voltage aggregates (min/max/mean/delta) with outlier-cell flags
+- `get_limit_headroom` MCP tool — voltage and current headroom to BMS protection limits
+- `get_lifetime_stats` MCP tool — cycle count, full-charge events, under-voltage events, and remaining LFP cycle life estimate (nominal 4000 cycles)
+- `get_capacity_estimate` MCP tool — estimated real capacity vs rated capacity per battery (accurate at 20–80% SOC)
+- `get_power_stats` MCP tool — peak/average charge and discharge kW, average C-rate, fraction above 0.5C
+- `get_cost_savings` MCP tool — estimated monetary savings from discharged energy × tariff; reads `FELICITY_TARIFF_KWH` env var or `tariffKwh` param
+- `src/analyze.ts` — new compute module: `computeAlerts`, `computeEnergyHistory`, `computeCellStats`, `computePowerStats`; exports `AlertSeverity`, `Alert`, `EnergyDay`, `CellStat`, `PowerStats`
+- `FELICITY_TARIFF_KWH` env var — electricity tariff (currency/kWh) used by `get_cost_savings` tool
+- `test/analyze.test.js` — 30+ unit tests covering all four new compute functions
+
 ## [1.0.26] — 2026-07-02
 
 ### Changed

@@ -588,6 +588,7 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 | `FELICITY_POLL_MS` | No | `30000` | Felicity API poll interval (ms) |
 | `FELICITY_TOKEN_TTL_H` | No | `6` | Felicity auth token lifetime in hours before proactive refresh |
 | `FELICITY_LOW_SOC_PCT` | No | `20` | SOC % threshold that triggers the `low_soc` webhook event |
+| `FELICITY_TARIFF_KWH` | No | — | Electricity tariff in currency/kWh used by the `get_cost_savings` MCP tool |
 | `FELICITY_TELEMETRY_MS` | No | `300000` | Snapshot emitter / webhook interval (ms) |
 | `FELICITY_SNAPSHOT_ENABLED` | No | `true` | Enable background snapshot store |
 | `FELICITY_SNAPSHOT_MS` | No | `600000` | Snapshot store interval (ms, min 60 000) |

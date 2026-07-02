@@ -42,5 +42,10 @@ export { FelicityClient,
 // Helpers
 export { pickNextSunrise, nullableInt, nullableFloat, clamp, sleep } from "./src/helpers";
 
+// Analyze
+export { computeAlerts, computeEnergyHistory, computeCellStats, computePowerStats,
+         AlertSeverity,
+         type Alert, type EnergyDay, type CellStat, type PowerStats } from "./src/analyze";
+
 // Server (embedded / programmatic use)
 export { createServer, startServer, type ServerOptions, type ServerResult } from "./server";

@@ -11,11 +11,14 @@ import { z }                    from "zod";
 import { constants }            from "node:http2";
 
 import { FelicityClient }                       from "./src/client";
+import { CELLS_PER_MODULE }                     from "./src/battery";
 import { MemoryCacheAdapter }                   from "./src/cache";
 import { snapshotStore as _defaultSnapshotStore } from "./src/store";
 import { hookStore     as _defaultHookStore     } from "./src/hooks";
 import { startPoller }                            from "./src/state";
 import { computeHealth, computeAutonomy }         from "./src/compute";
+import { computeAlerts, computeEnergyHistory,
+         computeCellStats, computePowerStats }   from "./src/analyze";
 import { HealthStatus, TrendDirection }           from "./src/enums";
 import { createLogger, logger as _defaultLogger, type Logger } from "./src/logger";
 import { makeGetAllowedOrigin, makeCheckAuth,
@@ -101,6 +104,8 @@ function sendError(res: http.ServerResponse, err: Error & { statusCode?: number 
     : (err.message || "internal server error");
   sendJson(res, status, { error: message });
 }
+
+const LFP_NOMINAL_CYCLES = 4000;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -320,6 +325,218 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
           (b.estimatedHoursToFull != null ? `  ~${b.estimatedHoursToFull} h to full` : "")
         ),
       ];
+      return textContent(lines.join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_alerts",
+    "Active alert list ranked by severity. Checks cell imbalance, temperature, SOH, outlier cells, BMS warnings, under-voltage events, and data staleness.",
+    { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const snapshots  = serverSnapshotStore.getSnapshots();
+      const health     = computeHealth(batteries, snapshots);
+      const targets    = id
+        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
+        : batteries;
+      if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
+      const alerts = computeAlerts(targets, health);
+      if (!alerts.length) return textContent("No active alerts.");
+      return textContent(alerts.map((a) => `[${a.severity.toUpperCase()}] ${a.battery}  ${a.code}: ${a.message}`).join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_energy_history",
+    "Daily charge/discharge energy totals (kWh) from intraday snapshots. Shows peak charge/discharge rates and net energy balance.",
+    {},
+    async () => {
+      const snapshots = serverSnapshotStore.getSnapshots();
+      const history   = computeEnergyHistory(snapshots);
+      if (!history.length) return textContent("Not enough snapshots for energy history (need at least 2 readings ~10 min apart).");
+      const lines = history.map((d) =>
+        `${d.date}  ↑${d.kwhCharged} kWh  ↓${d.kwhDischarged} kWh  net ${d.kwhNet >= 0 ? "+" : ""}${d.kwhNet} kWh` +
+        `  peak ↑${d.peakChargeKw} kW ↓${d.peakDischargeKw} kW  (${d.snapshotCount} samples)`
+      );
+      return textContent(lines.join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_cell_stats",
+    "Per-cell voltage statistics from intraday snapshots: mean, stddev, min/max, deviation from pack average, and trend direction.",
+    { id: z.string().describe("Alias (Bat1/Bat2/Bat3) or serial number") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);
+      if (!bat) return textContent(`Battery '${id}' not found.`);
+      const snapshots = serverSnapshotStore.getSnapshots();
+      const stats     = computeCellStats(snapshots, bat.sn);
+      if (!stats.length) return textContent("Not enough snapshots for cell statistics (need at least 2 readings).");
+      const lines = stats.map((c) =>
+        `Cell ${String(c.cell).padStart(2, "0")} (M${c.module})  mean ${c.mean} mV  σ ${c.stddev}  ` +
+        `range ${c.min}–${c.max} mV  dev ${c.meanDeviation >= 0 ? "+" : ""}${c.meanDeviation} mV  ${c.trend}`
+      );
+      return textContent(lines.join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_module_health",
+    "Per-module voltage aggregates (min/max/mean/delta) for one battery using live cell voltages. Flags modules containing persistent outlier cells.",
+    { id: z.string().describe("Alias (Bat1/Bat2/Bat3) or serial number") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);
+      if (!bat) return textContent(`Battery '${id}' not found.`);
+      const snapshots  = serverSnapshotStore.getSnapshots();
+      const health     = computeHealth(batteries, snapshots);
+      const h          = health[bat.sn];
+      const outlierSet = new Set(h?.outliers ?? []);
+      const moduleMap  = new Map<number, number[]>();
+      bat.cellVoltages.forEach((v, i) => {
+        const mod = Math.ceil((i + 1) / CELLS_PER_MODULE);
+        if (!moduleMap.has(mod)) moduleMap.set(mod, []);
+        moduleMap.get(mod)!.push(v);
+      });
+      const lines = [...moduleMap.entries()].map(([mod, vs]) => {
+        const min   = Math.min(...vs);
+        const max   = Math.max(...vs);
+        const mean  = Math.round(vs.reduce((s, v) => s + v, 0) / vs.length);
+        const start = (mod - 1) * CELLS_PER_MODULE + 1;
+        const hasOutlier = vs.some((_, i) => outlierSet.has(start + i));
+        return `Module ${mod}  min ${min} mV  max ${max} mV  mean ${mean} mV  delta ${max - min} mV${hasOutlier ? "  [OUTLIER]" : ""}`;
+      });
+      return textContent([`${bat.alias}  ${bat.cellVoltages.length} cells  ${moduleMap.size} modules`, "", ...lines].join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_limit_headroom",
+    "Headroom between current voltage/current and BMS protection limits. Useful for spotting packs running close to cutoff thresholds.",
+    { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const targets = id
+        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
+        : batteries;
+      if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
+      const lines = targets.map((bat) => {
+        const cvRoom  = bat.chargeVoltLimit    != null ? (bat.chargeVoltLimit    - bat.voltage).toFixed(1) : "N/A";
+        const dvRoom  = bat.dischargeVoltLimit != null ? (bat.voltage - bat.dischargeVoltLimit).toFixed(1) : "N/A";
+        const ccRoom  = bat.chargeCurrLimit    != null ? (bat.chargeCurrLimit    - Math.abs(bat.current)).toFixed(1) : "N/A";
+        const dcRoom  = bat.dischargeCurrLimit != null ? (bat.dischargeCurrLimit - Math.abs(bat.current)).toFixed(1) : "N/A";
+        return (
+          `${bat.alias}  V=${bat.voltage} V  I=${bat.current} A\n` +
+          `  charge volt headroom: ${cvRoom} V  discharge volt headroom: ${dvRoom} V\n` +
+          `  charge curr headroom: ${ccRoom} A  discharge curr headroom: ${dcRoom} A`
+        );
+      });
+      return textContent(lines.join("\n\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_lifetime_stats",
+    "Cycle count, full-charge events, under-voltage events, warning count, and projected remaining LFP cycle life (nominal 4000 cycles).",
+    { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const targets = id
+        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
+        : batteries;
+      if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
+      const lines = targets.map((bat) => {
+        const cycles    = bat.batCycleIndex ?? 0;
+        const pct       = Math.round(cycles / LFP_NOMINAL_CYCLES * 100);
+        const remaining = LFP_NOMINAL_CYCLES - cycles;
+        return (
+          `${bat.alias}\n` +
+          `  Cycles used: ${cycles} / ${LFP_NOMINAL_CYCLES} (${pct}%)\n` +
+          `  Cycles remaining (est.): ${remaining}\n` +
+          `  Full charges: ${bat.batFullCount ?? "N/A"}  Under-voltage events: ${bat.batUnderVoltageCount ?? "N/A"}  Warnings: ${bat.warningCount}`
+        );
+      });
+      return textContent(lines.join("\n\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_capacity_estimate",
+    "Estimates real usable capacity (remainingKwh ÷ SOC%) vs rated capacity per battery. Most accurate at 20–80% SOC.",
+    { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
+    async ({ id }) => {
+      const { batteries } = await client.getBatteries();
+      const targets = id
+        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
+        : batteries;
+      if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
+      const lines = targets.map((bat) => {
+        if (bat.soc < 5 || bat.soc > 95)
+          return `${bat.alias}  SOC ${bat.soc}% — outside 5–95% range, estimate unreliable`;
+        const estimated = Math.round((bat.remainingKwh / (bat.soc / 100)) * 100) / 100;
+        const degraded  = bat.ratedEnergyKwh != null
+          ? Math.round((1 - estimated / bat.ratedEnergyKwh) * 100)
+          : null;
+        return (
+          `${bat.alias}  SOC ${bat.soc}%  remaining ${bat.remainingKwh} kWh\n` +
+          `  Estimated capacity: ${estimated} kWh` +
+          (bat.ratedEnergyKwh != null ? `  Rated: ${bat.ratedEnergyKwh} kWh  Degradation: ~${degraded}%` : "")
+        );
+      });
+      return textContent(lines.join("\n\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_power_stats",
+    "Charge/discharge power statistics from intraday snapshots: peak kW, average kW, C-rate, and fraction of samples above 0.5C.",
+    {},
+    async () => {
+      const { batteries } = await client.getBatteries();
+      const snapshots     = serverSnapshotStore.getSnapshots();
+      const stats         = computePowerStats(snapshots, batteries);
+      if (!stats.totalSamples) return textContent("No snapshots available.");
+      return textContent([
+        `Samples: ${stats.totalSamples}  (charge: ${stats.chargeSamples}  discharge: ${stats.dischargeSamples})`,
+        "",
+        `Peak charge:    ${stats.peakChargeKw} kW    Avg: ${stats.avgChargeKw} kW`,
+        `Peak discharge: ${stats.peakDischargeKw} kW    Avg: ${stats.avgDischargeKw} kW`,
+        stats.avgCRate      != null ? `Avg C-rate (discharge): ${stats.avgCRate} C` : "Avg C-rate: N/A (no rated capacity)",
+        stats.pctAboveHalfC != null ? `Samples above 0.5C: ${stats.pctAboveHalfC}%` : "",
+      ].filter(Boolean).join("\n"));
+    }
+  );
+
+  mcp.tool(
+    "get_cost_savings",
+    "Estimated monetary savings from discharged energy × electricity tariff. Pass tariffKwh or set FELICITY_TARIFF_KWH env var.",
+    { tariffKwh: z.number().optional().describe("Electricity tariff in currency-per-kWh (e.g. 0.25 for €0.25/kWh)") },
+    async ({ tariffKwh }) => {
+      const rate      = tariffKwh ?? (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
+      const snapshots = serverSnapshotStore.getSnapshots();
+      const history   = computeEnergyHistory(snapshots);
+      if (!history.length) return textContent("Not enough snapshots for cost savings calculation (need at least 2 readings).");
+      const totalDischarged = history.reduce((s, d) => s + d.kwhDischarged, 0);
+      const totalCharged    = history.reduce((s, d) => s + d.kwhCharged,    0);
+      const lines: string[] = [
+        `Period: ${history[0].date} → ${history[history.length - 1].date}  (${history.length} day${history.length !== 1 ? "s" : ""})`,
+        "",
+        `Total discharged: ${Math.round(totalDischarged * 100) / 100} kWh`,
+        `Total charged:    ${Math.round(totalCharged    * 100) / 100} kWh`,
+      ];
+      if (rate != null && !isNaN(rate) && rate > 0) {
+        const savings = Math.round(totalDischarged * rate * 100) / 100;
+        lines.push("", `Tariff: ${rate}/kWh  →  Estimated savings: ${savings}`);
+        lines.push("", "Daily breakdown:");
+        for (const d of history) {
+          const daySavings = Math.round(d.kwhDischarged * rate * 100) / 100;
+          lines.push(`  ${d.date}  ${d.kwhDischarged} kWh discharged  →  ${daySavings} saved`);
+        }
+      } else {
+        lines.push("", "Set FELICITY_TARIFF_KWH env var or pass tariffKwh param to see monetary savings.");
+      }
       return textContent(lines.join("\n"));
     }
   );

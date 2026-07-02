@@ -576,11 +576,49 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       }
 
       if (req.method === "GET" && url.pathname.startsWith("/batteries/")) {
-        const id     = url.pathname.slice("/batteries/".length);
-        const result = await client.getBattery(id);
-        if (!result.battery) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
-        sendJson(res, HTTP_STATUS_OK, result);
-        return;
+        const bpath = url.pathname.slice("/batteries/".length);
+        const slash = bpath.indexOf("/");
+        const bid   = slash >= 0 ? bpath.slice(0, slash) : bpath;
+        const bsub  = slash >= 0 ? bpath.slice(slash + 1) : "";
+
+        if (bsub === "cell-stats") {
+          const { batteries } = await client.getBatteries();
+          const bat = batteries.find((b) => b.alias.toLowerCase() === bid.toLowerCase() || b.sn === bid);
+          if (!bat) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+          sendJson(res, HTTP_STATUS_OK, { battery: bat.alias, sn: bat.sn, stats: computeCellStats(serverSnapshotStore.getSnapshots(), bat.sn) });
+          return;
+        }
+
+        if (bsub === "module-health") {
+          const { batteries } = await client.getBatteries();
+          const bat = batteries.find((b) => b.alias.toLowerCase() === bid.toLowerCase() || b.sn === bid);
+          if (!bat) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+          const health    = computeHealth(batteries, serverSnapshotStore.getSnapshots());
+          const outliers  = new Set(health[bat.sn]?.outliers ?? []);
+          const moduleMap = new Map<number, number[]>();
+          bat.cellVoltages.forEach((v, i) => {
+            const m = Math.ceil((i + 1) / CELLS_PER_MODULE);
+            if (!moduleMap.has(m)) moduleMap.set(m, []);
+            moduleMap.get(m)!.push(v);
+          });
+          const modules = [...moduleMap.entries()].map(([mod, vs]) => ({
+            module:     mod,
+            min:        Math.min(...vs),
+            max:        Math.max(...vs),
+            mean:       Math.round(vs.reduce((s, v) => s + v, 0) / vs.length),
+            delta:      Math.max(...vs) - Math.min(...vs),
+            hasOutlier: vs.some((_, i) => outliers.has((mod - 1) * CELLS_PER_MODULE + 1 + i)),
+          }));
+          sendJson(res, HTTP_STATUS_OK, { battery: bat.alias, sn: bat.sn, modules });
+          return;
+        }
+
+        if (!bsub) {
+          const result = await client.getBattery(bid);
+          if (!result.battery) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+          sendJson(res, HTTP_STATUS_OK, result);
+          return;
+        }
       }
 
       if (req.method === "GET" && url.pathname === "/hooks") {
@@ -642,6 +680,127 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
         }
         serverLogger.info("snapshots reset", { deleted });
         sendJson(res, HTTP_STATUS_OK, { ok: true, deleted });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/alerts") {
+        const qid = url.searchParams.get("id") ?? undefined;
+        const { batteries } = await client.getBatteries();
+        const targets = qid
+          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
+          : batteries;
+        if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+        const alerts = computeAlerts(targets, computeHealth(batteries, serverSnapshotStore.getSnapshots()));
+        sendJson(res, HTTP_STATUS_OK, { alerts, count: alerts.length });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/energy") {
+        const history = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        sendJson(res, HTTP_STATUS_OK, { history });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/limit-headroom") {
+        const qid = url.searchParams.get("id") ?? undefined;
+        const { batteries } = await client.getBatteries();
+        const targets = qid
+          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
+          : batteries;
+        if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+        sendJson(res, HTTP_STATUS_OK, {
+          batteries: targets.map((bat) => ({
+            alias:                 bat.alias,
+            sn:                    bat.sn,
+            voltage:               bat.voltage,
+            current:               bat.current,
+            chargeVoltHeadroom:    bat.chargeVoltLimit    != null ? Math.round((bat.chargeVoltLimit    - bat.voltage) * 10) / 10 : null,
+            dischargeVoltHeadroom: bat.dischargeVoltLimit != null ? Math.round((bat.voltage - bat.dischargeVoltLimit) * 10) / 10 : null,
+            chargeCurrHeadroom:    bat.chargeCurrLimit    != null ? Math.round((bat.chargeCurrLimit    - Math.abs(bat.current)) * 10) / 10 : null,
+            dischargeCurrHeadroom: bat.dischargeCurrLimit != null ? Math.round((bat.dischargeCurrLimit - Math.abs(bat.current)) * 10) / 10 : null,
+          })),
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/lifetime-stats") {
+        const qid = url.searchParams.get("id") ?? undefined;
+        const { batteries } = await client.getBatteries();
+        const targets = qid
+          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
+          : batteries;
+        if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+        sendJson(res, HTTP_STATUS_OK, {
+          batteries: targets.map((bat) => {
+            const cycles = bat.batCycleIndex ?? 0;
+            return {
+              alias:              bat.alias,
+              sn:                 bat.sn,
+              cyclesUsed:         cycles,
+              nominalCycles:      LFP_NOMINAL_CYCLES,
+              cyclesPct:          Math.round(cycles / LFP_NOMINAL_CYCLES * 100),
+              cyclesRemaining:    LFP_NOMINAL_CYCLES - cycles,
+              fullCharges:        bat.batFullCount        ?? null,
+              underVoltageEvents: bat.batUnderVoltageCount ?? null,
+              warningCount:       bat.warningCount,
+            };
+          }),
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/capacity") {
+        const qid = url.searchParams.get("id") ?? undefined;
+        const { batteries } = await client.getBatteries();
+        const targets = qid
+          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
+          : batteries;
+        if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
+        sendJson(res, HTTP_STATUS_OK, {
+          batteries: targets.map((bat) => {
+            const estimated = bat.soc >= 5 && bat.soc <= 95
+              ? Math.round((bat.remainingKwh / (bat.soc / 100)) * 100) / 100
+              : null;
+            return {
+              alias:                bat.alias,
+              sn:                   bat.sn,
+              soc:                  bat.soc,
+              remainingKwh:         bat.remainingKwh,
+              estimatedCapacityKwh: estimated,
+              ratedCapacityKwh:     bat.ratedEnergyKwh ?? null,
+              degradationPct:       estimated != null && bat.ratedEnergyKwh != null
+                ? Math.round((1 - estimated / bat.ratedEnergyKwh) * 100)
+                : null,
+            };
+          }),
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/power-stats") {
+        const { batteries } = await client.getBatteries();
+        sendJson(res, HTTP_STATUS_OK, computePowerStats(serverSnapshotStore.getSnapshots(), batteries));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/cost-savings") {
+        const tariffParam = url.searchParams.get("tariff");
+        const rate = tariffParam != null
+          ? parseFloat(tariffParam)
+          : (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
+        const history         = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        const totalDischarged = Math.round(history.reduce((s, d) => s + d.kwhDischarged, 0) * 100) / 100;
+        const totalCharged    = Math.round(history.reduce((s, d) => s + d.kwhCharged,    0) * 100) / 100;
+        sendJson(res, HTTP_STATUS_OK, {
+          period:             history.length ? { from: history[0].date, to: history[history.length - 1].date } : null,
+          totalDischargedKwh: totalDischarged,
+          totalChargedKwh:    totalCharged,
+          tariff:             rate ?? null,
+          estimatedSavings:   rate != null && !isNaN(rate) && rate > 0
+            ? Math.round(totalDischarged * rate * 100) / 100
+            : null,
+          history,
+        });
         return;
       }
 

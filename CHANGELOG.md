@@ -7,6 +7,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.28] — 2026-07-02
+
+### Added
+- REST API endpoints for all 9 analytics features:
+  - `GET /alerts` (`?id=` optional filter) — severity-ranked alert list
+  - `GET /energy` — daily charge/discharge kWh history
+  - `GET /batteries/:id/cell-stats` — per-cell voltage statistics
+  - `GET /batteries/:id/module-health` — per-module voltage aggregates
+  - `GET /limit-headroom` (`?id=` optional filter) — headroom to BMS protection limits
+  - `GET /lifetime-stats` (`?id=` optional filter) — cycle count and LFP life estimate
+  - `GET /capacity` (`?id=` optional filter) — estimated vs rated capacity
+  - `GET /power-stats` — peak/average power and C-rate statistics
+  - `GET /cost-savings` (`?tariff=` optional override) — energy savings in currency units
+
 ## [1.0.27] — 2026-07-02
 
 ### Added

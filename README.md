@@ -219,14 +219,299 @@ const { battery }   = await client.getBattery('Bat1')
 
 To also start the background poller (keeps data fresh, enables snapshots and events):
 
-```js
+```ts
 import { FelicityClient, MemoryCacheAdapter, startPoller } from 'fsolar-mcp'
 
 const client = new FelicityClient({ user, pass, cache: new MemoryCacheAdapter(), ttl: 30 })
 startPoller(client)   // polls every FELICITY_POLL_MS (default 30 s)
 ```
 
-TypeScript types are generated from source — the package ships `dist/index.d.ts` automatically.
+TypeScript types are generated from source — the package ships `dist/index.d.ts` automatically. No separate `@types` package needed.
+
+---
+
+## TypeScript
+
+The package is written in TypeScript. All types are exported from the package root:
+
+```ts
+import type {
+  Battery, BatteryModule,
+  BatteryHealth, AutonomyResult, AutonomyPerBattery, AutonomyOptions,
+  BatterySnapshot, BalanceTrend,
+  BatteriesResult, BatteryResult,
+  FelicityClientOptions,
+  MaterializedState,
+  SnapshotPayload,
+  CacheAdapter,
+} from 'fsolar-mcp'
+
+import { ChargingState, HealthStatus, TrendDirection, HookEvent } from 'fsolar-mcp'
+```
+
+### `Battery`
+
+The core data object — one per physical battery pack. Returned inside `BatteriesResult` and `BatteryResult`.
+
+```ts
+interface Battery {
+  // Identity
+  sn:    string               // serial number
+  alias: string               // human name (Bat1, Bat2, …)
+  model: string               // model string from BMS
+  status: "NM" | "AL" | "FL" | "OF"  // Normal / Alarm / Fault / Offline
+
+  // State of charge / health
+  soc: number                 // % state of charge
+  soh: number                 // % state of health
+
+  // Electrical
+  voltage: number             // pack voltage (V)
+  current: number             // pack current (A)
+  power:   number             // pack power (W) — positive = charging, negative = discharging
+  chargingState: ChargingState  // "charging" | "discharging" | "standby"
+
+  // Energy
+  remainingKwh:   number      // estimated remaining energy (kWh)
+  capacityAh:     number      // rated capacity (Ah)
+  ratedEnergyKwh: number | null  // rated energy (kWh) from BMS — null if not reported
+
+  // Cell voltages (16 cells, mV)
+  cellVoltages:   number[]
+  cellVoltageMin: number | null
+  cellVoltageMax: number | null
+  cellDelta:      number | null  // spread max−min (mV) — primary imbalance indicator
+  minCellNum:     number | null  // 1-based index of weakest cell
+  maxCellNum:     number | null  // 1-based index of strongest cell
+
+  // Temperature (°C) — 4 physical sensors; 3276.7 °C sentinel filtered out
+  cellTemps: number[]
+  tempMin:   number
+  tempMax:   number
+
+  // Module breakdown (4 modules × 4 cells)
+  modules: BatteryModule[]
+
+  // BMS protection limits
+  chargeVoltLimit:    number | null  // max charge voltage (V)
+  dischargeVoltLimit: number | null  // min discharge voltage (V)
+  chargeCurrLimit:    number | null  // max charge current (A)
+  dischargeCurrLimit: number | null  // max discharge current (A)
+
+  // BMS lifecycle counters
+  batCycleIndex:        number | null  // total charge cycles
+  batFullCount:         number | null  // times reached full charge
+  batUnderVoltageCount: number | null  // under-voltage events
+  warningCount:         number
+
+  // Metadata
+  isBalancing:   boolean        // bit 6 of bmsState — BMS actively balancing cells
+  bmsState:      number | null  // raw BMS state register
+  dataTime:      string | null  // ISO timestamp of last Felicity API report
+  reportFreqSec: number | null  // reporting interval (s)
+  wifiSignal:    number         // dBm
+}
+```
+
+### `BatteryModule`
+
+One of the 4 modules inside a pack (each has 4 cells).
+
+```ts
+interface BatteryModule {
+  index: number    // 1–4
+  cells: number[]  // 4 cell voltages (mV)
+  temp:  number | null  // physical sensor for this module (°C)
+  min:   number    // lowest cell in this module (mV)
+  max:   number    // highest cell in this module (mV)
+  delta: number    // max − min spread within this module (mV)
+}
+```
+
+### `BatteriesResult`
+
+Returned by `client.getBatteries()`.
+
+```ts
+interface BatteriesResult {
+  batteries: Battery[]
+  fetchedAt: string                      // ISO timestamp of the fetch
+  fromCache: boolean
+  trend:     Record<string, BalanceTrend>  // keyed by serial number
+}
+```
+
+### `BatteryResult`
+
+Returned by `client.getBattery(id)`.
+
+```ts
+interface BatteryResult {
+  battery:   Battery | null  // null when id not found
+  fetchedAt: string
+  fromCache: boolean
+}
+```
+
+### `BatteryHealth`
+
+Returned per battery by `computeHealth(batteries, snapshots)`. Keyed by serial number.
+
+```ts
+interface BatteryHealth {
+  alias:           string
+  cellDeltaStatus: "ok" | "warn" | "crit" | null  // null when cellDelta unavailable
+  cellDelta:       number | null  // live spread (mV)
+  dischargeDelta:  number | null  // median spread during discharge snapshots (mV) — more reliable than live
+  tempStatus:      "ok" | "warn" | "crit" | null
+  tempMax:         number | null
+  sohStatus:       "ok" | "warn" | null  // SOH never reaches "crit"
+  soh:             number | null
+  outliers:        number[]    // 1-based cell indices persistently below pack average
+  avgCRate:        number | null  // average C-rate over last ~6 snapshots
+}
+```
+
+### `AutonomyResult`
+
+Returned by `computeAutonomy(batteries, snapshots, opts)`.
+
+```ts
+interface AutonomyResult {
+  totalRemainingKwh:     number       // sum of remainingKwh across all batteries
+  totalCapacityKwh:      number       // sum of rated (or back-calculated) capacity
+  dischargeRateKw:       number       // fleet rate used for all estimates
+  estimatedHours:        number       // hours until fleet hits minSocPct
+  estimatedHoursToFull:  number | null  // hours until fully charged; null if not charging
+  estimatedSocAtSunrise: number | null  // % SOC at next sunrise; null if sunriseAt not given
+  hoursToSunrise:        number | null
+  estimatedDischargeKwh: number | null  // kWh discharged between now and sunrise
+  estimatedRemainingKwh: number | null  // kWh remaining at sunrise
+  perBattery:            AutonomyPerBattery[]
+}
+
+interface AutonomyPerBattery {
+  sn:                   string
+  alias:                string
+  remainingKwh:         number
+  estimatedHours:       number
+  estimatedHoursToFull: number | null
+}
+
+interface AutonomyOptions {
+  sunriseAt?:          string | Date | null  // ISO string or Date — enables sunrise fields
+  packCapacityKwh?:    number | null         // explicit override; otherwise derived from BMS
+  minSocPct?:          number                // reserve floor (default 5)
+  defaultDischargeKw?: number                // fallback when no history (default 1.5)
+}
+```
+
+### `BalanceTrend`
+
+Returned by `snapshotStore.getTrend(sn)` and `snapshotStore.getAllTrends(batteries)`.
+
+```ts
+interface BalanceTrend {
+  direction:              "improving" | "stable" | "degrading"
+  deltaChange:            number    // mV change newest − oldest (negative = improving)
+  history:                number[]  // cellDelta values oldest → newest
+  balancingCount:         number    // snapshots where isBalancing = true
+  snapshotCount:          number
+  currentBalancingStreak: number    // consecutive trailing snapshots with balancing on
+}
+```
+
+### `BatterySnapshot`
+
+One entry in the snapshot store — written every `FELICITY_SNAPSHOT_MS` (default 10 min).
+
+```ts
+interface BatterySnapshot {
+  ts:        string  // ISO timestamp
+  batteries: Array<{
+    sn:          string
+    alias:       string
+    soc:         number
+    soh:         number
+    power:       number
+    cellDelta:   number | null
+    cellMin:     number | null
+    cellMax:     number | null
+    maxCellNum:  number | null
+    minCellNum:  number | null
+    voltages:    number[]
+    temps:       number[]
+    tempMax:     number
+    tempMin:     number
+    isBalancing: boolean
+    warningCount:   number
+    batCycleIndex:  number | null
+  }>
+}
+```
+
+### `MaterializedState`
+
+Returned by `readState()` — pre-computed state written by the poller on every tick. Zero-latency read; no recomputation needed.
+
+```ts
+interface MaterializedState {
+  updatedAt: string                        // ISO timestamp of last poller tick
+  batteries: Battery[]
+  health:    Record<string, BatteryHealth>
+  trend:     Record<string, BalanceTrend>
+  autonomy:  AutonomyResult
+}
+```
+
+### `SnapshotPayload`
+
+Emitted by `snapshotEmitter` and delivered to `snapshot` webhook subscribers.
+
+```ts
+interface SnapshotPayload {
+  batteries: Battery[]
+  health:    Record<string, BatteryHealth>
+  ts:        string  // ISO emission timestamp
+}
+```
+
+### Enums
+
+All discriminant strings are exported as frozen const objects — use them instead of bare strings for autocomplete and compile-time safety.
+
+```ts
+import { ChargingState, HealthStatus, TrendDirection, HookEvent } from 'fsolar-mcp'
+
+// ChargingState
+ChargingState.CHARGING    // "charging"
+ChargingState.DISCHARGING // "discharging"
+ChargingState.STANDBY     // "standby"
+
+// HealthStatus
+HealthStatus.OK    // "ok"
+HealthStatus.WARN  // "warn"
+HealthStatus.CRIT  // "crit"
+
+// TrendDirection
+TrendDirection.IMPROVING  // "improving"
+TrendDirection.STABLE     // "stable"
+TrendDirection.DEGRADING  // "degrading"
+
+// HookEvent
+HookEvent.CELL_DELTA_CRIT  // "cell_delta_crit"
+HookEvent.CELL_DELTA_WARN  // "cell_delta_warn"
+HookEvent.TEMP_CRIT        // "temp_crit"
+HookEvent.TEMP_WARN        // "temp_warn"
+HookEvent.SOH_WARN         // "soh_warn"
+HookEvent.LOW_SOC          // "low_soc"
+HookEvent.FULL             // "full"
+HookEvent.ONLINE           // "online"
+HookEvent.OFFLINE          // "offline"
+HookEvent.SNAPSHOT         // "snapshot"
+```
+
+Types match their string values — `battery.chargingState === ChargingState.CHARGING` compiles and narrows correctly.
 
 ---
 
@@ -327,84 +612,6 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 **Discharging view** — live power flow and SOC during active discharge across the fleet.
 
 ![Fleet discharging — live power flow and SOC](docs/images/fleet_discharging.jpg)
-
----
-
-## Available data
-
-### Per battery
-
-| Field | Type | Description |
-|---|---|---|
-| `sn` | string | Serial number |
-| `alias` | string | Human name (`Bat1`, `Bat2`, `Bat3`) |
-| `model` | string | Model string from BMS |
-| `status` | `NM` \| `AL` \| `FL` \| `OF` | Normal / Alarm / Fault / Offline |
-| `soc` | number % | State of charge |
-| `soh` | number % | State of health |
-| `voltage` | number V | Pack voltage |
-| `current` | number A | Pack current |
-| `power` | number W | Pack power (positive = charging, negative = discharging) |
-| `chargingState` | string | `charging` / `discharging` / `standby` |
-| `remainingKwh` | number | Estimated remaining energy |
-| `capacityAh` | number | Rated capacity (Ah) |
-| `ratedEnergyKwh` | number \| null | Rated energy (kWh) |
-| `isBalancing` | boolean | Active cell balancing in progress |
-| `warningCount` | number | Active BMS warnings |
-
-### Cell & temperature
-
-| Field | Type | Description |
-|---|---|---|
-| `cellVoltages` | number[] mV | All 16 cell voltages |
-| `cellVoltageMin` | number \| null mV | Lowest cell voltage |
-| `cellVoltageMax` | number \| null mV | Highest cell voltage |
-| `cellDelta` | number \| null mV | Spread between min and max cell (imbalance indicator) |
-| `minCellNum` | number \| null | 1-based index of weakest cell |
-| `maxCellNum` | number \| null | 1-based index of strongest cell |
-| `cellTemps` | number[] °C | 4 physical temperature sensors |
-| `tempMin` | number °C | Lowest sensor reading |
-| `tempMax` | number °C | Highest sensor reading |
-
-### BMS protection limits
-
-| Field | Type | Description |
-|---|---|---|
-| `chargeVoltLimit` | number \| null V | Max charge voltage |
-| `dischargeVoltLimit` | number \| null V | Min discharge voltage |
-| `chargeCurrLimit` | number \| null A | Max charge current |
-| `dischargeCurrLimit` | number \| null A | Max discharge current |
-
-### BMS lifecycle counters
-
-| Field | Type | Description |
-|---|---|---|
-| `batCycleIndex` | number \| null | Total charge cycles (BMS-native counter) |
-| `batFullCount` | number \| null | Times battery reached full charge |
-| `batUnderVoltageCount` | number \| null | Under-voltage events |
-
-### Module breakdown
-
-Each battery exposes up to 4 `modules`:
-
-| Field | Type | Description |
-|---|---|---|
-| `index` | number | Module number (1–4) |
-| `cells` | number[] mV | 4 cell voltages in this module |
-| `temp` | number \| null °C | Physical sensor for this module |
-| `min` / `max` / `delta` | number mV | Voltage spread within the module |
-
-### Balance trend
-
-Computed from intra-day snapshots:
-
-| Field | Description |
-|---|---|
-| `direction` | `improving` / `stable` / `degrading` |
-| `deltaChange` | mV change newest − oldest (negative = improving) |
-| `history` | `cellDelta` values oldest → newest |
-| `balancingCount` | Snapshots where balancing was active |
-| `currentBalancingStreak` | Consecutive trailing snapshots with balancing on |
 
 ---
 

@@ -76,12 +76,19 @@ This package follows [Semantic Versioning 2.0](https://semver.org/):
 
 Release process:
 
+1. Bump `version` in `package.json` manually
+2. Add a `## [X.Y.Z] — YYYY-MM-DD` entry in `CHANGELOG.md`
+3. Run `npm run build` to update `dist/`
+4. Commit: `chore: bump to vX.Y.Z`
+5. Push the commit and tag:
+
 ```bash
-npm version patch   # or minor / major
-git push --follow-tags
+git tag vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
 ```
 
-`npm version` updates `package.json`, creates a commit (`chore(release): vX.Y.Z`), and tags it. The tag triggers the publish workflow.
+The tag triggers the CI publish workflow — **never run `npm publish` manually**.
 
 ## Pull Requests
 
@@ -95,11 +102,36 @@ Use the PR template when opening a pull request — it will pre-populate the des
 
 ## Coding conventions
 
+### TypeScript
+
+All source files are TypeScript (`src/*.ts`, `index.ts`, `server.ts`). The compiler is configured with `strict: true` — no implicit `any`, no unchecked nullable access.
+
+```ts
+// ✗ wrong — implicit any, raw require
+const { foo } = require("./bar")
+function process(data) { ... }
+
+// ✓ correct — typed import, explicit signature
+import { Foo } from "./bar"
+function process(data: Foo): Result { ... }
+```
+
+Use `import type` for type-only imports to keep runtime output clean:
+
+```ts
+import type { Battery } from "./battery"
+import type { BatterySnapshot } from "./store"
+```
+
+Never add `// @ts-ignore` or `as any` — fix the underlying type gap instead. If a third-party API returns `unknown`, narrow it explicitly before use.
+
+**Build before running:** `npm run build` compiles TypeScript to `dist/`. Tests run directly against the TypeScript source via `tsx/cjs` — no build step needed for `npm test`.
+
 ### No magic numbers
 
 Every non-obvious numeric literal must be a named constant. "Non-obvious" means a reader would have to know the hardware spec, algorithm design, or protocol to understand the value without the name.
 
-```js
+```ts
 // ✗ wrong
 .filter((t) => !isNaN(t) && t < 200)
 if (totalPowerW < -100) { ... }
@@ -115,20 +147,20 @@ Numbers that are fine as literals: `0`, `1` (index/offset arithmetic), `100` (pe
 
 When adding a named number constant:
 
-1. Define it at the top of the file where it is used, with a `// unit — reason` comment.
+1. Define it at the top of the file where it is used.
 2. Export it from the module if it is useful to callers (e.g. thresholds they may want to compare against).
 3. Add a row to the relevant table in `docs/ALGORITHMS.md` if it affects observable behaviour.
 
 ### No magic strings
 
-All discriminant string values must be referenced through the enums in `src/enums.js` — never as bare string literals. The same rule applies to any new discriminant you introduce.
+All discriminant string values must be referenced through the enums in `src/enums.ts` — never as bare string literals. The same rule applies to any new discriminant you introduce.
 
-```js
+```ts
 // ✗ wrong
 if (bat.chargingState === "discharging") { ... }
 
 // ✓ correct
-const { ChargingState } = require("./enums");
+import { ChargingState } from "./enums"
 if (bat.chargingState === ChargingState.DISCHARGING) { ... }
 ```
 
@@ -141,33 +173,63 @@ The four enums exported by the package:
 | `TrendDirection` | `IMPROVING`, `STABLE`, `DEGRADING` |
 | `HookEvent` | `CELL_DELTA_CRIT`, `CELL_DELTA_WARN`, `TEMP_CRIT`, `TEMP_WARN`, `SOH_WARN`, `LOW_SOC`, `FULL`, `ONLINE`, `OFFLINE`, `SNAPSHOT` |
 
+Each enum is both a runtime frozen object and a TypeScript union type — the same name serves both roles:
+
+```ts
+export const ChargingState = Object.freeze({ CHARGING: "charging", ... } as const)
+export type  ChargingState = typeof ChargingState[keyof typeof ChargingState]
+```
+
 When adding a new discriminant string (a new event, state, or status):
 
-1. Add the constant to the appropriate enum in `src/enums.js`.
-2. Use it everywhere — in production code, tests, and documentation.
-3. Export it from `index.js` and declare it in `index.d.ts`.
-4. Add a row to the relevant table in `docs/ALGORITHMS.md`.
+1. Add the constant to the appropriate enum in `src/enums.ts`.
+2. Add the corresponding type export if introducing a new enum.
+3. Use it everywhere — in production code, tests, and documentation.
+4. Export it from `index.ts` (types are generated automatically — no separate `.d.ts` to update).
+5. Add a row to the relevant table in `docs/ALGORITHMS.md`.
 
 Full documentation of all enum values, their trigger conditions, and cooldowns is in [docs/ALGORITHMS.md](./docs/ALGORITHMS.md#string-enums).
+
+### HTTP status codes
+
+Always use `node:http2` named constants — never raw numbers. See `CLAUDE.md` for the full import pattern.
 
 ## Tests
 
 ```bash
-npm test          # runs all unit tests under test/
+npm test          # runs all 205 unit tests — no build step needed
 ```
 
-Tests use Node's built-in test runner (`node:test`). No external test framework is needed. New behaviour must be covered by tests.
+Tests use Node's built-in test runner (`node:test`) with `tsx/cjs` as the loader so they run directly against TypeScript source. No external test framework or build step required.
+
+Test files live in `test/` and are plain JavaScript (`.js`) — they `require("../index")` which tsx resolves to the TypeScript source at runtime:
+
+| File | What it covers |
+|---|---|
+| `cache.test.js` | `MemoryCacheAdapter` TTL and key isolation |
+| `client.test.js` | `FelicityClient` auth, caching, pagination |
+| `compute.test.js` | `computeHealth` and `computeAutonomy` logic |
+| `errors.test.js` | `AppError` shape and inheritance |
+| `helpers.test.js` | `nullableInt`, `clamp`, `sleep`, `pickSnapshotFields`, `pickNextSunrise` |
+| `hooks.test.js` | `HookStore` SSRF validation, cooldowns, event filtering |
+| `logger.test.js` | `createLogger` JSON output format |
+| `middleware.test.js` | CORS, auth, rate limit, body parsing |
+| `snapshot.test.js` | `BatterySnapshotStore` trend computation |
+| `transform.test.js` | `buildBattery` field mapping and edge cases |
+
+New behaviour must be covered by a test. Write the test file in `test/`, require from `"../index"` or `"../src/module-name"`, and add it to the `test` script in `package.json`.
 
 ### Security tests
 
-`test/security.test.js` is a live integration test suite that runs against a running server. It is not included in `npm test` because it requires a live server process and real credentials:
+`test/security.test.js` is a live integration suite that runs against a real server process. It is not included in `npm test`:
 
 ```bash
-# terminal 1 — start server in test mode (rate limit off, explicit API key)
-FELICITY_MODE=http FELICITY_API_KEY=test-key FELICITY_RATE_LIMIT=0 npx fsolar-mcp
+# terminal 1 — build and start server in test mode
+npm run build
+FELICITY_USER=x FELICITY_PASS=y FELICITY_API_KEY=test-key FELICITY_MODE=http FELICITY_RATE_LIMIT=0 node dist/server.js
 
 # terminal 2 — run the suite
-FELICITY_API_KEY=test-key node --test test/security.test.js
+FELICITY_API_KEY=test-key npm run test:security
 ```
 
 Any change that touches authentication, CORS, rate limiting, webhook URL validation, or request body handling must be re-verified against this suite.

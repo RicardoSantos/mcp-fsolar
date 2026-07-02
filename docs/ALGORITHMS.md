@@ -86,6 +86,21 @@ Returns `null` if no qualifying samples exist.
 
 Returns `AutonomyResult` with fleet totals and a per-battery breakdown.
 
+### Return fields
+
+| Field | Type | Always present | Description |
+|---|---|---|---|
+| `totalRemainingKwh` | `number` | ✓ | Sum of `bat.remainingKwh` across all batteries |
+| `totalCapacityKwh` | `number` | ✓ | Sum of rated (or back-calculated) capacity across all batteries |
+| `dischargeRateKw` | `number` | ✓ | Fleet discharge rate used for all estimates (see below) |
+| `estimatedHours` | `number` | ✓ | Hours until fleet SOC hits `minSocPct` at current discharge rate |
+| `estimatedHoursToFull` | `number \| null` | when charging | Hours until fully charged; `null` if not charging |
+| `estimatedSocAtSunrise` | `number \| null` | when `sunriseAt` given | Estimated fleet SOC % at next sunrise |
+| `hoursToSunrise` | `number \| null` | when `sunriseAt` given | Hours between now and `sunriseAt` |
+| `estimatedDischargeKwh` | `number \| null` | when `sunriseAt` given | Energy discharged between now and sunrise (`dischargeRateKw × hoursToSunrise`) |
+| `estimatedRemainingKwh` | `number \| null` | when `sunriseAt` given | Estimated total remaining kWh at sunrise (floored at `minSocPct` reserve) |
+| `perBattery` | `AutonomyPerBattery[]` | ✓ | Per-battery breakdown (see below) |
+
 ### Discharge rate
 
 **If actively discharging** (`totalPowerW < −100 W`):
@@ -161,7 +176,11 @@ discharged            = dischargeRateKw × hoursToSunrise
 minKwh                = totalCapacityKwh × (minSocPct / 100)
 estimatedKwh          = max(minKwh, totalRemainingKwh − discharged)
 estimatedSocAtSunrise = clamp(round(estimatedKwh / totalCapacityKwh × 100), minSocPct, 100)
+estimatedDischargeKwh = round(discharged, 1)
+estimatedRemainingKwh = round(estimatedKwh, 1)
 ```
+
+All five fields (`hoursToSunrise`, `estimatedSocAtSunrise`, `estimatedDischargeKwh`, `estimatedRemainingKwh`, and `totalCapacityKwh`) are included in the `AutonomyResult` return value so callers never need to re-derive them.
 
 **Assumptions:** Constant discharge rate until sunrise. Does not model temperature effects, BMS cut-off curves, or PV/grid interaction.
 

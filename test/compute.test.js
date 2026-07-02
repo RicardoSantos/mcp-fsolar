@@ -354,3 +354,53 @@ test("computeAutonomy — perBattery remainingKwh matches input", () => {
   const r   = computeAutonomy([bat], []);
   assert.equal(r.perBattery[0].remainingKwh, 7.7); // rounded to 1 decimal
 });
+
+// ── computeAutonomy — new aggregate fields ────────────────────────────────────
+
+test("computeAutonomy — totalCapacityKwh uses ratedEnergyKwh when available", () => {
+  const bat = makeBat({ ratedEnergyKwh: 15, remainingKwh: 12, soc: 80 });
+  const r   = computeAutonomy([bat], []);
+  assert.equal(r.totalCapacityKwh, 15);
+});
+
+test("computeAutonomy — totalCapacityKwh back-calculated from remainingKwh/soc when ratedEnergyKwh is null", () => {
+  // capacity = 10 / 0.8 = 12.5 kWh
+  const bat = makeBat({ ratedEnergyKwh: null, remainingKwh: 10, soc: 80 });
+  const r   = computeAutonomy([bat], []);
+  assert.equal(r.totalCapacityKwh, 12.5);
+});
+
+test("computeAutonomy — hoursToSunrise is null when sunriseAt not provided", () => {
+  assert.equal(computeAutonomy([makeBat()], []).hoursToSunrise, null);
+});
+
+test("computeAutonomy — hoursToSunrise is non-negative when sunriseAt is in the future", () => {
+  const sunrise = new Date(Date.now() + 6 * 3_600_000).toISOString();
+  const r = computeAutonomy([makeBat({ ratedEnergyKwh: 10, power: -1000 })], [], { sunriseAt: sunrise });
+  assert.ok(r.hoursToSunrise != null && r.hoursToSunrise >= 0);
+});
+
+test("computeAutonomy — estimatedDischargeKwh null when sunriseAt not provided", () => {
+  assert.equal(computeAutonomy([makeBat()], []).estimatedDischargeKwh, null);
+});
+
+test("computeAutonomy — estimatedDischargeKwh = rate × hoursToSunrise", () => {
+  const bat     = makeBat({ power: -2000, remainingKwh: 10, ratedEnergyKwh: 10 });
+  const sunrise = new Date(Date.now() + 3 * 3_600_000).toISOString(); // 3 h away
+  const r       = computeAutonomy([bat], [], { sunriseAt: sunrise });
+  // rate = 2 kW, ~3 h → ~6 kWh (allow ±0.2 for rounding)
+  assert.ok(r.estimatedDischargeKwh != null && Math.abs(r.estimatedDischargeKwh - 6) < 0.2);
+});
+
+test("computeAutonomy — estimatedRemainingKwh null when sunriseAt not provided", () => {
+  assert.equal(computeAutonomy([makeBat()], []).estimatedRemainingKwh, null);
+});
+
+test("computeAutonomy — estimatedRemainingKwh consistent with estimatedSocAtSunrise", () => {
+  const bat     = makeBat({ power: -500, remainingKwh: 8, ratedEnergyKwh: 10, soc: 80 });
+  const sunrise = new Date(Date.now() + 4 * 3_600_000).toISOString();
+  const r       = computeAutonomy([bat], [], { sunriseAt: sunrise, minSocPct: 5 });
+  assert.ok(r.estimatedRemainingKwh != null);
+  // estimatedRemainingKwh should be >= 5% of capacity (floor)
+  assert.ok(r.estimatedRemainingKwh >= r.totalCapacityKwh * 0.05 - 0.1);
+});

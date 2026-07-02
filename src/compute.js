@@ -180,20 +180,29 @@ function computeAutonomy(batteries, snapshots, opts = {}) {
   });
 
   // ── SOC at sunrise ────────────────────────────────────────────────────────
-  let estimatedSocAtSunrise = null;
+  let estimatedSocAtSunrise  = null;
+  let hoursToSunrise         = null;
+  let estimatedDischargeKwh  = null;
+  let estimatedRemainingKwh  = null;
   if (sunriseAt != null && totalCapacityKwh > 0) {
-    const hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
-    const minKwh = totalCapacityKwh * (minSocPct / 100);
+    hoursToSunrise = Math.max(0, (new Date(sunriseAt).getTime() - Date.now()) / 3_600_000);
+    const minKwh   = totalCapacityKwh * (minSocPct / 100);
     const remaining = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
     estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / totalCapacityKwh) * 100), 100);
+    estimatedDischargeKwh = Math.round(dischargeRateKw * hoursToSunrise * 10) / 10;
+    estimatedRemainingKwh = Math.round(remaining * 10) / 10;
   }
 
   return {
     totalRemainingKwh:    Math.round(totalRemainingKwh * 10) / 10,
+    totalCapacityKwh:     Math.round(totalCapacityKwh * 10) / 10,
     dischargeRateKw:      Math.round(dischargeRateKw * 10) / 10,
     estimatedHours,
     estimatedHoursToFull,
     estimatedSocAtSunrise,
+    hoursToSunrise:       hoursToSunrise != null ? Math.round(hoursToSunrise * 10) / 10 : null,
+    estimatedDischargeKwh,
+    estimatedRemainingKwh,
     perBattery,
   };
 }

@@ -2,12 +2,14 @@ import { EventEmitter }                                from "events";
 import fs   from "fs";
 import os   from "os";
 import path from "path";
-import { snapshotStore as _defaultSnapshotStore }      from "./store";
+import { snapshotStore as _defaultSnapshotStore,
+         dailyEnergyStore as _defaultDailyEnergyStore } from "./store";
 import { hookStore     as _defaultHookStore     }      from "./hooks";
 import { computeHealth, computeAutonomy }              from "./compute";
+import { computeEnergyHistory }                        from "./analyze";
 import { logger }                                      from "./logger";
 import type { FelicityClient }                         from "./client";
-import type { BatterySnapshotStore }                   from "./store";
+import type { BatterySnapshotStore, DailyEnergyStore, DailyEnergy } from "./store";
 import type { HookStore }                              from "./hooks";
 import type { Battery }                                from "./battery";
 import type { BatterySnapshot, BalanceTrend }          from "./store";
@@ -59,19 +61,25 @@ export async function readState(): Promise<MaterializedState | null> {
 
 export function startPoller(
   client: FelicityClient,
-  opts: { snapshotStore?: BatterySnapshotStore; hookStore?: HookStore } = {}
+  opts: {
+    snapshotStore?:    BatterySnapshotStore;
+    dailyEnergyStore?: DailyEnergyStore;
+    hookStore?:        HookStore;
+    onTick?:           (err: Error | null, batteries?: Battery[]) => void;
+  } = {}
 ): { stop(): void } {
-  const snapshotStore = opts.snapshotStore ?? _defaultSnapshotStore;
-  const hookStore     = opts.hookStore     ?? _defaultHookStore;
+  const snapshotStore   = opts.snapshotStore   ?? _defaultSnapshotStore;
+  const dailyEnergyStore = opts.dailyEnergyStore ?? _defaultDailyEnergyStore;
+  const hookStore       = opts.hookStore       ?? _defaultHookStore;
+  const onTick          = opts.onTick;
 
   let _tickRunning   = false;
-  let _lastBatteries: Battery[] | null                  = null;
+  let _lastBatteries: Battery[] | null                    = null;
   let _lastHealth:    Record<string, BatteryHealth> | null = null;
 
-  function _emitSnapshot(): void {
+  function _emitWebhookSnapshot(): void {
     if (!_lastBatteries) return;
     const payload = { batteries: _lastBatteries, health: _lastHealth ?? {}, ts: new Date().toISOString() };
-    snapshotEmitter.emit("snapshot", payload);
     hookStore.fireSnapshot(payload).catch(() => {});
   }
 
@@ -85,8 +93,14 @@ export function startPoller(
       _lastBatteries  = batteries;
       _lastHealth     = health;
       _writeState(batteries, snapshots, health, snapshotStore);
+      dailyEnergyStore.update(computeEnergyHistory(snapshots) as DailyEnergy[]);
+      // Emit every tick so SSE /events clients get 30 s updates
+      snapshotEmitter.emit("snapshot", { batteries, health, ts: new Date().toISOString() });
       await hookStore.fire(batteries, health);
+      await hookStore.retryFailed();
+      onTick?.(null, batteries);
     } catch (err: unknown) {
+      onTick?.(err as Error);
       logger.error("tick error", { err: (err as Error).message });
     } finally {
       _tickRunning = false;
@@ -95,7 +109,8 @@ export function startPoller(
 
   tick();
   const tickInterval      = setInterval(tick, POLL_MS);
-  const telemetryInterval = setInterval(_emitSnapshot, TELEMETRY_MS);
+  // Webhook SNAPSHOT events fire on their own slower cadence
+  const telemetryInterval = setInterval(_emitWebhookSnapshot, TELEMETRY_MS);
 
   return {
     stop() {

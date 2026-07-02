@@ -13,9 +13,10 @@ import { constants }            from "node:http2";
 import { FelicityClient }                       from "./src/client";
 import { CELLS_PER_MODULE }                     from "./src/battery";
 import { MemoryCacheAdapter }                   from "./src/cache";
-import { snapshotStore as _defaultSnapshotStore } from "./src/store";
+import { snapshotStore as _defaultSnapshotStore,
+         dailyEnergyStore as _defaultDailyEnergyStore } from "./src/store";
 import { hookStore     as _defaultHookStore     } from "./src/hooks";
-import { startPoller }                            from "./src/state";
+import { startPoller, snapshotEmitter, readState } from "./src/state";
 import { computeHealth, computeAutonomy }         from "./src/compute";
 import { computeAlerts, computeEnergyHistory,
          computeCellStats, computePowerStats }   from "./src/analyze";
@@ -24,8 +25,8 @@ import { createLogger, logger as _defaultLogger, type Logger } from "./src/logge
 import { makeGetAllowedOrigin, makeCheckAuth,
          makeRateLimit, readBody }               from "./src/middleware";
 import { AppError }                              from "./src/errors";
-import type { BatterySnapshotStore }             from "./src/store";
-import type { HookStore }                        from "./src/hooks";
+import type { BatterySnapshotStore, DailyEnergyStore } from "./src/store";
+import type { HookStore }                              from "./src/hooks";
 
 const {
   HTTP_STATUS_OK, HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT,
@@ -110,14 +111,15 @@ const LFP_NOMINAL_CYCLES = 4000;
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export interface ServerOptions {
-  apiKey?:        string | null;
-  rateLimit?:     number;
-  corsOrigin?:    string | null;
-  trustProxy?:    boolean;
-  port?:          number;
-  snapshotStore?: BatterySnapshotStore;
-  hookStore?:     HookStore;
-  logger?:        Logger;
+  apiKey?:           string | null;
+  rateLimit?:        number;
+  corsOrigin?:       string | null;
+  trustProxy?:       boolean;
+  port?:             number;
+  snapshotStore?:    BatterySnapshotStore;
+  dailyEnergyStore?: DailyEnergyStore;
+  hookStore?:        HookStore;
+  logger?:           Logger;
 }
 
 export interface ServerResult {
@@ -131,14 +133,15 @@ export interface ServerResult {
 
 export function createServer(client: FelicityClient, opts: ServerOptions = {}): ServerResult {
   const {
-    apiKey:     serverApiKey     = null,
-    rateLimit:  serverRateLimit  = 60,
-    corsOrigin: serverCorsOrigin = null,
-    port:       serverPort       = 3010,
-    trustProxy:    serverTrustProxy    = false,
-    snapshotStore: serverSnapshotStore = _defaultSnapshotStore,
-    hookStore:     serverHookStore     = _defaultHookStore,
-    logger:        serverLogger        = _defaultLogger,
+    apiKey:           serverApiKey           = null,
+    rateLimit:        serverRateLimit        = 60,
+    corsOrigin:       serverCorsOrigin       = null,
+    port:             serverPort             = 3010,
+    trustProxy:       serverTrustProxy       = false,
+    snapshotStore:    serverSnapshotStore    = _defaultSnapshotStore,
+    dailyEnergyStore: serverDailyEnergyStore = _defaultDailyEnergyStore,
+    hookStore:        serverHookStore        = _defaultHookStore,
+    logger:           serverLogger           = _defaultLogger,
   } = opts;
 
   let pollError: string | null = null;
@@ -349,11 +352,13 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
 
   mcp.tool(
     "get_energy_history",
-    "Daily charge/discharge energy totals (kWh) from intraday snapshots. Shows peak charge/discharge rates and net energy balance.",
+    "Daily charge/discharge energy totals (kWh) — up to 90 days from persistent store, merged with live intraday data. Shows peak rates and net balance.",
     {},
     async () => {
-      const snapshots = serverSnapshotStore.getSnapshots();
-      const history   = computeEnergyHistory(snapshots);
+      const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+      const persisted = serverDailyEnergyStore.get();
+      const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
+      const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
       if (!history.length) return textContent("Not enough snapshots for energy history (need at least 2 readings ~10 min apart).");
       const lines = history.map((d) =>
         `${d.date}  ↑${d.kwhCharged} kWh  ↓${d.kwhDischarged} kWh  net ${d.kwhNet >= 0 ? "+" : ""}${d.kwhNet} kWh` +
@@ -515,8 +520,10 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { tariffKwh: z.number().optional().describe("Electricity tariff in currency-per-kWh (e.g. 0.25 for €0.25/kWh)") },
     async ({ tariffKwh }) => {
       const rate      = tariffKwh ?? (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
-      const snapshots = serverSnapshotStore.getSnapshots();
-      const history   = computeEnergyHistory(snapshots);
+      const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+      const persisted = serverDailyEnergyStore.get();
+      const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
+      const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
       if (!history.length) return textContent("Not enough snapshots for cost savings calculation (need at least 2 readings).");
       const totalDischarged = history.reduce((s, d) => s + d.kwhDischarged, 0);
       const totalCharged    = history.reduce((s, d) => s + d.kwhCharged,    0);
@@ -560,7 +567,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     if (req.method === "OPTIONS") { res.writeHead(HTTP_STATUS_NO_CONTENT); res.end(); return; }
 
     if (url.pathname !== "/health" && !checkRateLimit(req, res)) return;
-    if (url.pathname !== "/health" && url.pathname !== "/sse" && !checkAuth(req, res)) return;
+    if (url.pathname !== "/health" && !checkAuth(req, res)) return;
 
     try {
       if (req.method === "GET" && url.pathname === "/health") {
@@ -696,7 +703,10 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       }
 
       if (req.method === "GET" && url.pathname === "/energy") {
-        const history = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        const persisted = serverDailyEnergyStore.get();
+        const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
+        const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
         sendJson(res, HTTP_STATUS_OK, { history });
         return;
       }
@@ -788,7 +798,10 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
         const rate = tariffParam != null
           ? parseFloat(tariffParam)
           : (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
-        const history         = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
+        const persisted = serverDailyEnergyStore.get();
+        const merged2   = new Map([...persisted, ...live].map((e) => [e.date, e]));
+        const history   = [...merged2.values()].sort((a, b) => a.date.localeCompare(b.date));
         const totalDischarged = Math.round(history.reduce((s, d) => s + d.kwhDischarged, 0) * 100) / 100;
         const totalCharged    = Math.round(history.reduce((s, d) => s + d.kwhCharged,    0) * 100) / 100;
         sendJson(res, HTTP_STATUS_OK, {
@@ -801,6 +814,25 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
             : null,
           history,
         });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/events") {
+        res.writeHead(HTTP_STATUS_OK, {
+          "Content-Type":  "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection":    "keep-alive",
+        });
+        res.write("retry: 5000\n\n");
+        const onSnapshot = (payload: unknown): void => {
+          res.write(`event: snapshot\ndata: ${JSON.stringify(payload)}\n\n`);
+        };
+        snapshotEmitter.on("snapshot", onSnapshot);
+        req.on("close", () => snapshotEmitter.off("snapshot", onSnapshot));
+        // Send last persisted state immediately so clients don't wait for next tick
+        readState().then((state) => {
+          if (state) res.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
+        }).catch(() => {});
         return;
       }
 
@@ -893,20 +925,17 @@ export async function main(): Promise<void> {
 
   const { httpServer, mcp, setPollError, close } = createServer(client, serverOpts);
 
-  async function poll(): Promise<void> {
-    try {
-      const { batteries } = await client.getBatteries();
-      setPollError(null);
-      _defaultLogger.info("poll", { batteries: batteries.length, summary: batteries.map((b) => `${b.alias}=${b.soc}%`).join(" ") });
-    } catch (err: unknown) {
-      setPollError(err as Error);
-      _defaultLogger.error("poll error", { err: (err as Error).message });
-    }
-  }
-
-  await poll();
-  setInterval(poll, POLL_MS);
-  const poller = startPoller(client);
+  const poller = startPoller(client, {
+    onTick: (err, batteries) => {
+      if (err) {
+        setPollError(err);
+        _defaultLogger.error("poll error", { err: err.message });
+      } else if (batteries) {
+        setPollError(null);
+        _defaultLogger.info("poll", { batteries: batteries.length, summary: batteries.map((b) => `${b.alias}=${b.soc}%`).join(" ") });
+      }
+    },
+  });
 
   if (IS_STDIO) {
     const transport = new StdioServerTransport();

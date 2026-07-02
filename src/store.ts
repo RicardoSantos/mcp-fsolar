@@ -149,7 +149,67 @@ export class DailySnapshotStore extends SnapshotStore {
   }
 }
 
+// ── DailyEnergyStore ──────────────────────────────────────────────────────────
+
+export interface DailyEnergy {
+  date:            string;
+  kwhCharged:      number;
+  kwhDischarged:   number;
+  kwhNet:          number;
+  peakChargeKw:    number;
+  peakDischargeKw: number;
+  snapshotCount:   number;
+}
+
+export class DailyEnergyStore {
+  private _records:         DailyEnergy[];
+  private readonly _maxDays: number;
+
+  constructor() {
+    const { ddays } = resolveSnapshotConfig();
+    this._maxDays   = ddays;
+    this._records   = this._load();
+  }
+
+  private get _file(): string {
+    return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-energy.json");
+  }
+
+  private _load(): DailyEnergy[] {
+    try { return JSON.parse(fs.readFileSync(this._file, "utf8")) as DailyEnergy[]; }
+    catch { return []; }
+  }
+
+  private _save(): void {
+    try {
+      const dest = this._file;
+      const tmp  = dest + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(this._records, null, 2));
+      fs.renameSync(tmp, dest);
+      try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
+    } catch (e: unknown) {
+      logger.error("DailyEnergyStore write failed", { err: (e as Error).message });
+    }
+  }
+
+  update(entries: DailyEnergy[]): void {
+    if (!entries.length) return;
+    const cutoff = new Date(Date.now() - this._maxDays * 86_400_000).toISOString().slice(0, 10);
+    const map    = new Map(this._records.map((r) => [r.date, r]));
+    for (const e of entries) {
+      if (e.date >= cutoff) map.set(e.date, e);
+    }
+    this._records = [...map.values()]
+      .filter((r) => r.date >= cutoff)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    this._save();
+  }
+
+  get(): DailyEnergy[] { return this._records.slice(); }
+}
+
 // ── Singletons ────────────────────────────────────────────────────────────────
 
 export const snapshotStore:      BatterySnapshotStore = new BatterySnapshotStore();
 export const dailySnapshotStore: DailySnapshotStore   = new DailySnapshotStore();
+export const dailyEnergyStore:   DailyEnergyStore     = new DailyEnergyStore();

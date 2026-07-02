@@ -26,7 +26,21 @@ const HOOK_DELIVERY_TIMEOUT_MS = 8_000;
 const DEFAULT_COOLDOWN_H       = 4;
 const DELIVERY_MAX_ATTEMPTS    = 3;
 const DELIVERY_LOG_SIZE        = 50;
+const MAX_RETRY_QUEUE          = 200;
+const RETRY_TTL_MS             = 24 * 3_600_000;
+const COOLDOWN_PRUNE_MS        = 48 * 3_600_000;
 const VALID_EVENTS: Set<string> = new Set(Object.values(HookEvent));
+
+interface RetryEntry {
+  hookId:   string;
+  event:    string;
+  payload:  Record<string, unknown>;
+  failedAt: number;
+}
+
+function _retryFile(): string {
+  return path.join(process.env.SNAPSHOT_DIR ?? os.tmpdir(), "battery-hook-retries.json");
+}
 
 const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0$|::1$|::ffff:|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i;
 
@@ -100,14 +114,17 @@ export interface SnapshotPayload {
 }
 
 export class HookStore {
-  private _prevBatInfo: Map<string, string> | null = null;
-  private _hooks:       StoredHook[];
-  private _cooldowns:   Record<string, number>;
-  private _deliveryLog: Map<string, HookDelivery[]> = new Map();
+  private _prevBatInfo:   Map<string, string> | null    = null;
+  private _prevAlertKeys: Set<string>         | null    = null;
+  private _hooks:         StoredHook[];
+  private _cooldowns:     Record<string, number>;
+  private _deliveryLog:   Map<string, HookDelivery[]>   = new Map();
+  private _retryQueue:    RetryEntry[];
 
   constructor() {
-    this._hooks     = this._loadFromDisk();
-    this._cooldowns = this._loadCooldownsFromDisk();
+    this._hooks      = this._loadFromDisk();
+    this._cooldowns  = this._loadCooldownsFromDisk();
+    this._retryQueue = this._loadRetryQueue();
   }
 
   private _loadFromDisk(): StoredHook[] {
@@ -140,6 +157,44 @@ export class HookStore {
       fs.renameSync(tmp, dest);
       try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
     } catch (e: unknown) { logger.error("HookStore cooldown save failed", { err: (e as Error).message }); }
+  }
+
+  private _loadRetryQueue(): RetryEntry[] {
+    try { return JSON.parse(fs.readFileSync(_retryFile(), "utf8")) as RetryEntry[]; }
+    catch { return []; }
+  }
+
+  private _saveRetryQueue(): void {
+    try {
+      const dest = _retryFile();
+      const tmp  = dest + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(this._retryQueue, null, 2));
+      fs.renameSync(tmp, dest);
+      try { fs.chmodSync(dest, 0o600); } catch { /* Windows */ }
+    } catch (e: unknown) { logger.error("HookStore retry queue save failed", { err: (e as Error).message }); }
+  }
+
+  private _queueRetry(hookId: string, event: string, payload: Record<string, unknown>): void {
+    this._retryQueue.push({ hookId, event, payload, failedAt: Date.now() });
+    if (this._retryQueue.length > MAX_RETRY_QUEUE)
+      this._retryQueue.splice(0, this._retryQueue.length - MAX_RETRY_QUEUE);
+    this._saveRetryQueue();
+  }
+
+  async retryFailed(): Promise<void> {
+    if (!this._retryQueue.length) return;
+    const now        = Date.now();
+    this._retryQueue = this._retryQueue.filter((r) => now - r.failedAt <= RETRY_TTL_MS);
+    if (!this._retryQueue.length) { this._saveRetryQueue(); return; }
+    const toRetry    = this._retryQueue.splice(0);
+    this._retryQueue = [];
+    for (const entry of toRetry) {
+      const hook = this._hooks.find((h) => h.id === entry.hookId);
+      if (!hook) continue;
+      const ok = await this._deliver(hook, entry.event, entry.payload);
+      if (!ok && now - entry.failedAt <= RETRY_TTL_MS) this._retryQueue.push(entry);
+    }
+    this._saveRetryQueue();
   }
 
   add({ url, events, secret }: { url: string; events?: string[]; secret?: string }): HookSubscription {
@@ -210,7 +265,7 @@ export class HookStore {
     return (this._deliveryLog.get(hookId) ?? []).slice().reverse();
   }
 
-  private async _deliver(hook: StoredHook, event: string, payload: Record<string, unknown>): Promise<void> {
+  private async _deliver(hook: StoredHook, event: string, payload: Record<string, unknown>): Promise<boolean> {
     const body    = JSON.stringify({ event, ...payload, ts: new Date().toISOString() });
     const headers: Record<string, string | number> = {
       "Content-Type":   "application/json",
@@ -229,6 +284,7 @@ export class HookStore {
     }
 
     this._logDelivery(hook.id, { event, url: hook.url, ok: result.ok, status: result.status, attempts, ts: new Date().toISOString() });
+    return result.ok;
   }
 
   async fireSnapshot(payload: SnapshotPayload): Promise<void> {
@@ -249,6 +305,11 @@ export class HookStore {
     const cooldowns = this._cooldowns;
     const now       = Date.now();
     let changed     = false;
+
+    // Prune stale cooldown keys so the file doesn't grow unboundedly
+    for (const key of Object.keys(cooldowns)) {
+      if (now - (cooldowns[key] ?? 0) > COOLDOWN_PRUNE_MS) delete cooldowns[key];
+    }
 
     interface FireEvent {
       event:     string;
@@ -315,14 +376,21 @@ export class HookStore {
       }
     }
 
-    // Fleet-wide ALERT catch-all — fires with full alert list when any alert is active
+    // Diff-based fleet-wide ALERT — fires immediately for new alerts, then on cooldown for persistent ones
+    const currAlertKeys = new Set(allAlerts.map((a) => `${a.battery}:${a.code}`));
+    const newAlerts     = this._prevAlertKeys === null
+      ? allAlerts
+      : allAlerts.filter((a) => !this._prevAlertKeys!.has(`${a.battery}:${a.code}`));
+    this._prevAlertKeys = currAlertKeys;
+
     let fireFleetAlert = false;
     if (allAlerts.length > 0) {
-      const alertKey      = "fleet:alert";
+      const alertKey       = "fleet:alert";
       const alertCooldownH = HOOK_COOLDOWNS_H[HookEvent.ALERT] ?? DEFAULT_COOLDOWN_H;
-      if (!cooldowns[alertKey] || now - cooldowns[alertKey] >= alertCooldownH * 3_600_000) {
+      const cooldownExpired = !cooldowns[alertKey] || now - cooldowns[alertKey] >= alertCooldownH * 3_600_000;
+      if (newAlerts.length > 0 || cooldownExpired) {
         cooldowns[alertKey] = now;
-        changed       = true;
+        changed        = true;
         fireFleetAlert = true;
       }
     }
@@ -332,16 +400,25 @@ export class HookStore {
     for (const ev of events) {
       for (const hook of hooks) {
         if (hook.events.length && !hook.events.includes(ev.event)) continue;
-        this._deliver(hook, ev.event, { sn: ev.sn, alias: ev.alias, value: ev.value, threshold: ev.threshold })
-          .catch(() => {/* fire-and-forget */});
+        const evPayload = { sn: ev.sn, alias: ev.alias, value: ev.value, threshold: ev.threshold };
+        this._deliver(hook, ev.event, evPayload).then((ok) => {
+          if (!ok) this._queueRetry(hook.id, ev.event, evPayload);
+        }).catch(() => {});
       }
     }
 
     if (fireFleetAlert) {
-      const alertPayload: Record<string, unknown> = { alerts: allAlerts, count: allAlerts.length };
+      const alertPayload: Record<string, unknown> = {
+        alerts:   allAlerts,
+        newAlerts,
+        count:    allAlerts.length,
+        newCount: newAlerts.length,
+      };
       for (const hook of hooks) {
         if (hook.events.length && !hook.events.includes(HookEvent.ALERT)) continue;
-        this._deliver(hook, HookEvent.ALERT, alertPayload).catch(() => {/* fire-and-forget */});
+        this._deliver(hook, HookEvent.ALERT, alertPayload).then((ok) => {
+          if (!ok) this._queueRetry(hook.id, HookEvent.ALERT, alertPayload);
+        }).catch(() => {});
       }
     }
   }

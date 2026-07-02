@@ -16,9 +16,9 @@ export { buildBattery, type Battery, type BatteryModule,
          MODULE_COUNT, CELLS_PER_MODULE, TEMP_SENTINEL_MAX_C } from "./src/battery";
 
 // Snapshot stores
-export { SnapshotStore, BatterySnapshotStore, DailySnapshotStore,
-         snapshotStore, dailySnapshotStore, resolveSnapshotConfig,
-         type BatterySnapshot, type BalanceTrend } from "./src/store";
+export { SnapshotStore, BatterySnapshotStore, DailySnapshotStore, DailyEnergyStore,
+         snapshotStore, dailySnapshotStore, dailyEnergyStore, resolveSnapshotConfig,
+         type BatterySnapshot, type BalanceTrend, type DailyEnergy } from "./src/store";
 
 // Webhooks
 export { HookStore, hookStore, HOOK_COOLDOWNS_H,

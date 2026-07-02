@@ -7,6 +7,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.30] — 2026-07-02
+
+### Added
+- `DailyEnergyStore` — persistent 90-day energy accumulator (`battery-energy.json`) that survives across process restarts; updated on every poller tick with `computeEnergyHistory` output
+- `GET /events` SSE stream — real-time dashboard endpoint; sends `event: snapshot` on every poll tick (30 s) plus `event: state` immediately on connect with last persisted state
+- `HookStore.retryFailed()` — dead-letter retry for failed webhook deliveries: persists queue to `battery-hook-retries.json`, retries on next tick, expires entries after 24 h, capped at 200 entries
+- `startPoller` `onTick` callback — replaces the duplicate `poll()`/`setInterval` in `main()` for error reporting and logging
+
+### Changed
+- `GET /energy`, `GET /cost-savings` REST endpoints and `get_energy_history`, `get_cost_savings` MCP tools now merge the persistent `DailyEnergyStore` (90 days) with live intraday data — live takes precedence for overlapping dates
+- `HookEvent.ALERT` is now diff-based: fires immediately when new alerts appear (bypassing cooldown) and on the 1 h schedule while the same alerts persist; payload includes `newAlerts[]` and `newCount` fields
+- `hookStore.fire()` now prunes cooldown keys older than 48 h on every tick to keep `battery-hook-cooldowns.json` compact
+- `_deliver` returns `Promise<boolean>` — delivery loops queue retries on failure instead of silently dropping
+- `snapshotEmitter.emit("snapshot")` now fires on every poll tick (30 s) rather than on the 5-minute telemetry interval — the webhook SNAPSHOT event delivery remains at the telemetry cadence
+- `main()` dual-poller eliminated — `startPoller` with `onTick` callback replaces the separate `poll()` function and `setInterval`
+
+### Security
+- Removed auth bypass for `GET /sse` — MCP SSE transport now requires `Authorization: Bearer` or `X-API-Key` when `FELICITY_API_KEY` is set (same as all other endpoints). **Breaking if using MCP over HTTP with an API key**: add the key header to your MCP client config.
+
 ## [1.0.29] — 2026-07-02
 
 ### Added

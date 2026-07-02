@@ -20,7 +20,7 @@
     "build": "tsc",
     "start": "node bin/fsolar-mcp.js",
     "probe": "node probe.js",
-    "test": "npm run build && node --test dist/test/cache.test.js dist/test/snapshot.test.js dist/test/transform.test.js dist/test/client.test.js dist/test/errors.test.js dist/test/logger.test.js dist/test/helpers.test.js dist/test/middleware.test.js dist/test/compute.test.js dist/test/hooks.test.js dist/test/analyze.test.js dist/test/security.test.js dist/test/config.test.js",
+    "test": "npm run build && node --test dist/test/cache.test.js dist/test/snapshot.test.js dist/test/transform.test.js dist/test/client.test.js dist/test/errors.test.js dist/test/logger.test.js dist/test/helpers.test.js dist/test/middleware.test.js dist/test/compute.test.js dist/test/hooks.test.js dist/test/analyze.test.js dist/test/config.test.js dist/test/server.test.js dist/test/state.test.js dist/test/security.test.js",
     "test:security": "npm run build && node --test dist/test/security.test.js",
     "setup": "git config core.hooksPath .githooks"
   },

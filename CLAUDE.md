@@ -37,11 +37,13 @@ bin/
   fsolar-mcp.js    CLI entry point — calls dist/server.js main() after build
 dist/              Compiled output (tsc → CommonJS + .d.ts); this is what npm publishes
 src/
+  constants.ts     all shared magic numbers and thresholds (health, autonomy, webhooks, cycles)
   errors.ts        AppError class (Error subclass with statusCode)
   logger.ts        createLogger() — injectable structured JSON logger (writes to stderr)
   middleware.ts    makeGetAllowedOrigin, makeCheckAuth, makeRateLimit, readBody factories
   hooks.ts         Webhook store, SSRF validation, event delivery, per-event cooldowns, retry
   compute.ts       Health metric derivation (computeHealth, computeAutonomy)
+  analyze.ts       computeAlerts, computeEnergyHistory, computeCellStats, computePowerStats
   enums.ts         HealthStatus, HookEvent, TrendDirection, ChargingState
   client.ts        FelicityClient — auth, pagination, caching
   http.ts          felicityRequest using fetch() + AbortSignal.timeout()
@@ -61,7 +63,10 @@ test/
   middleware.test.ts CORS, auth, rate limit, body parsing
   snapshot.test.ts   BatterySnapshotStore trend computation
   transform.test.ts  buildBattery field mapping
-  analyze.test.ts    analyzeBatteries + computePowerStats unit tests
+  analyze.test.ts    computeAlerts, computeEnergyHistory, computeCellStats, computePowerStats unit tests
+  server.test.ts     createServer HTTP route correctness and auth enforcement
+  state.test.ts      startPoller, readState, snapshotEmitter unit tests
+  config.test.ts     environment variable parsing and validation
   security.test.ts   Live HTTP security suite (auth, CORS, SSRF, rate limiting, webhooks)
 ```
 

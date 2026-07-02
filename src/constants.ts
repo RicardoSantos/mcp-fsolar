@@ -38,3 +38,7 @@ export const COOLDOWN_PRUNE_MS        = 48 * 3_600_000; // ms — cooldown keys 
 // ── Alert thresholds ──────────────────────────────────────────────────────────
 
 export const ALERT_STALE_MIN = 30; // minutes — last BMS report older than this triggers stale_data alert
+
+// ── Battery lifecycle ─────────────────────────────────────────────────────────
+
+export const LFP_NOMINAL_CYCLES = 4000; // rated full-cycle count for LFP chemistry

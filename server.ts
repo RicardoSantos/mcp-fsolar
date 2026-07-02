@@ -25,6 +25,7 @@ import { createLogger, logger as _defaultLogger, type Logger } from "./src/logge
 import { makeGetAllowedOrigin, makeCheckAuth,
          makeRateLimit, readBody }               from "./src/middleware";
 import { AppError }                              from "./src/errors";
+import { LFP_NOMINAL_CYCLES }                   from "./src/constants";
 import type { BatterySnapshotStore, DailyEnergyStore } from "./src/store";
 import type { HookStore }                              from "./src/hooks";
 
@@ -105,8 +106,6 @@ function sendError(res: http.ServerResponse, err: Error & { statusCode?: number 
     : (err.message || "internal server error");
   sendJson(res, status, { error: message });
 }
-
-const LFP_NOMINAL_CYCLES = 4000;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 

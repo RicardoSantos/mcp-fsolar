@@ -20,15 +20,14 @@
     "build": "tsc",
     "start": "node bin/fsolar-mcp.js",
     "probe": "node probe.js",
-    "test": "node --require tsx/cjs --test test/cache.test.js test/snapshot.test.js test/transform.test.js test/client.test.js test/errors.test.js test/logger.test.js test/helpers.test.js test/middleware.test.js test/compute.test.js test/hooks.test.js test/analyze.test.js",
-    "test:security": "node --test test/security.test.js",
+    "test": "npm run build && node --test dist/test/cache.test.js dist/test/snapshot.test.js dist/test/transform.test.js dist/test/client.test.js dist/test/errors.test.js dist/test/logger.test.js dist/test/helpers.test.js dist/test/middleware.test.js dist/test/compute.test.js dist/test/hooks.test.js dist/test/analyze.test.js dist/test/security.test.js",
+    "test:security": "npm run build && node --test dist/test/security.test.js",
     "setup": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
     "@commitlint/config-conventional": "^19.0.0",
     "@types/node": "^26.1.0",
-    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
   "keywords": [

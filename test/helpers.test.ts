@@ -1,8 +1,6 @@
-"use strict";
-
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const { nullableInt, nullableFloat, clamp, sleep, pickSnapshotFields, pickNextSunrise } = require("../src/helpers");
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { nullableInt, nullableFloat, clamp, sleep, pickSnapshotFields, pickNextSunrise } from "../src/helpers";
 
 // ── nullableInt ───────────────────────────────────────────────────────────────
 
@@ -109,8 +107,8 @@ test("pickSnapshotFields — maps warningCount and batCycleIndex", () => {
 
 test("pickSnapshotFields — does not include extra battery fields", () => {
   const s = pickSnapshotFields(FULL_BAT);
-  assert.equal(s.model,    undefined);
-  assert.equal(s.bmsState, undefined);
+  assert.equal((s as Record<string, unknown>).model,    undefined);
+  assert.equal((s as Record<string, unknown>).bmsState, undefined);
 });
 
 // ── pickNextSunrise ───────────────────────────────────────────────────────────
@@ -118,22 +116,22 @@ test("pickSnapshotFields — does not include extra battery fields", () => {
 const HOUR = 3_600_000;
 
 test("pickNextSunrise — returns today's sunrise when it is still in the future", () => {
-  const now           = Date.now();
-  const sunrise       = new Date(now + 4 * HOUR).toISOString(); // 4 h from now
+  const now             = Date.now();
+  const sunrise         = new Date(now + 4 * HOUR).toISOString();
   const sunriseTomorrow = new Date(now + 28 * HOUR).toISOString();
   assert.equal(pickNextSunrise(sunrise, sunriseTomorrow, now), sunrise);
 });
 
 test("pickNextSunrise — returns tomorrow's sunrise when today's has already passed", () => {
-  const now           = Date.now();
-  const sunrise       = new Date(now - 1 * HOUR).toISOString(); // 1 h ago
+  const now             = Date.now();
+  const sunrise         = new Date(now - 1 * HOUR).toISOString();
   const sunriseTomorrow = new Date(now + 23 * HOUR).toISOString();
   assert.equal(pickNextSunrise(sunrise, sunriseTomorrow, now), sunriseTomorrow);
 });
 
 test("pickNextSunrise — returns tomorrow's sunrise when today's is exactly now", () => {
-  const now     = Date.now();
-  const sunrise = new Date(now).toISOString(); // exactly now (not strictly future)
+  const now             = Date.now();
+  const sunrise         = new Date(now).toISOString();
   const sunriseTomorrow = new Date(now + 24 * HOUR).toISOString();
   assert.equal(pickNextSunrise(sunrise, sunriseTomorrow, now), sunriseTomorrow);
 });

@@ -1,21 +1,19 @@
-"use strict";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildBattery } from "../index";
 
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const { buildBattery } = require("../index");
-
-const DEVICE = {
-  deviceSn:    "TEST001",
-  alias:       "Bat1",
-  deviceModel: "MOD-A",
-  status:      "NM",
-  battSoc:     "0",
-  bmsPower:    "0",
+const DEVICE: Record<string, unknown> = {
+  deviceSn:     "TEST001",
+  alias:        "Bat1",
+  deviceModel:  "MOD-A",
+  status:       "NM",
+  battSoc:      "0",
+  bmsPower:     "0",
   battCapacity: "314",
-  wifiSignal:  "-60",
+  wifiSignal:   "-60",
 };
 
-const SNAP = {
+const SNAP: Record<string, unknown> = {
   battSoc:          "80",
   battSoh:          "98",
   battVolt:         "51.2",

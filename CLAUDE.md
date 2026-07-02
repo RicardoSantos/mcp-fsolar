@@ -17,8 +17,8 @@ Felicity Solar battery MCP server + REST API. Exposes per-cell voltages, SOC, SO
 ## Running tests
 
 ```bash
-npm test              # 205 unit tests — runs directly against TypeScript source via tsx, no build needed
-npm run test:security # live integration tests — requires a running server on port 3010
+npm test              # build + run all unit and security tests via node --test on dist/
+npm run test:security # build + run only the live security tests (server must be running)
 ```
 
 Security tests need a pre-started server and matching credentials:
@@ -51,17 +51,18 @@ src/
   battery.ts       buildBattery — raw Felicity API → typed Battery
   cache.ts         MemoryCacheAdapter, CacheAdapter interface
 test/
-  cache.test.js      MemoryCacheAdapter unit tests
-  client.test.js     FelicityClient unit tests
-  compute.test.js    computeHealth + computeAutonomy unit tests
-  errors.test.js     AppError unit tests
-  helpers.test.js    nullableInt, clamp, sleep, pickSnapshotFields, pickNextSunrise
-  hooks.test.js      HookStore SSRF, cooldowns, event filtering
-  logger.test.js     createLogger JSON output
-  middleware.test.js CORS, auth, rate limit, body parsing
-  snapshot.test.js   BatterySnapshotStore trend computation
-  transform.test.js  buildBattery field mapping
-  security.test.js   Live HTTP security suite (auth, CORS, SSRF, rate limiting, webhooks)
+  cache.test.ts      MemoryCacheAdapter unit tests
+  client.test.ts     FelicityClient unit tests
+  compute.test.ts    computeHealth + computeAutonomy unit tests
+  errors.test.ts     AppError unit tests
+  helpers.test.ts    nullableInt, clamp, sleep, pickSnapshotFields, pickNextSunrise
+  hooks.test.ts      HookStore SSRF, cooldowns, event filtering
+  logger.test.ts     createLogger JSON output
+  middleware.test.ts CORS, auth, rate limit, body parsing
+  snapshot.test.ts   BatterySnapshotStore trend computation
+  transform.test.ts  buildBattery field mapping
+  analyze.test.ts    analyzeBatteries + computePowerStats unit tests
+  security.test.ts   Live HTTP security suite (auth, CORS, SSRF, rate limiting, webhooks)
 ```
 
 **Build step required:** TypeScript source must be compiled before running the server:
@@ -71,7 +72,6 @@ npm run build   # tsc → emits dist/ with .js + .d.ts files
 node dist/server.js
 ```
 
-Tests run against TypeScript source directly via `tsx/cjs` — no build step needed for `npm test`.
 
 ## Three usage modes
 

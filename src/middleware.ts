@@ -52,7 +52,7 @@ interface RateBucket {
 
 export function makeRateLimit(
   rateLimit:  number,
-  trustProxy: boolean
+  trustProxy = false
 ): { checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean; stopPurge(): void } {
   const _buckets = new Map<string, RateBucket>();
   const _purge   = setInterval(() => {

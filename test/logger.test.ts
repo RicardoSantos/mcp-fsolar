@@ -1,12 +1,10 @@
-"use strict";
-
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const { createLogger } = require("../src/logger");
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createLogger } from "../src/logger";
 
 function captureLogger() {
-  const lines = [];
-  const log   = createLogger({ write: (line) => lines.push(line) });
+  const lines: string[] = [];
+  const log = createLogger({ write: (line) => lines.push(line) });
   return { log, lines };
 }
 

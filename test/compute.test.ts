@@ -1,8 +1,6 @@
-"use strict";
-
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const {
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
   computeHealth,
   computeAutonomy,
   HEALTH_CELL_DELTA_WARN,
@@ -14,12 +12,15 @@ const {
   DISCHARGE_DELTA_MIN_SNAPS,
   MIN_DISCHARGE_RATE_KW,
   MAX_DISCHARGE_RATE_KW,
-} = require("../src/compute");
-const { HealthStatus } = require("../src/enums");
+} from "../src/compute";
+import { HealthStatus } from "../src/enums";
+import type { Battery } from "../src/battery";
+import type { BatterySnapshot } from "../src/store";
+import type { SnapshotEntry } from "../src/helpers";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-function makeBat(overrides = {}) {
+function makeBat(overrides: Record<string, unknown> = {}): Battery {
   return {
     sn: "SN1", alias: "Bat1",
     cellDelta: 50, tempMax: 35, soh: 95,
@@ -28,21 +29,20 @@ function makeBat(overrides = {}) {
     remainingKwh: 10, soc: 80,
     ratedEnergyKwh: null, power: 0,
     ...overrides,
-  };
+  } as unknown as Battery;
 }
 
-// Battery entry as stored inside a BatterySnapshot
-function makeBatEntry(overrides = {}) {
+function makeBatEntry(overrides: Record<string, unknown> = {}): SnapshotEntry {
   return {
     sn: "SN1", alias: "Bat1",
     power: -500, cellDelta: 10,
     voltages: Array(16).fill(3200),
     soc: 80, soh: 99,
     ...overrides,
-  };
+  } as unknown as SnapshotEntry;
 }
 
-function makeSnap(batteries, minsAgo = 0) {
+function makeSnap(batteries: SnapshotEntry[], minsAgo = 0): BatterySnapshot {
   return {
     ts: new Date(Date.now() - minsAgo * 60_000).toISOString(),
     batteries,
@@ -133,16 +133,13 @@ test("computeHealth — sohStatus WARN below threshold", () => {
 // ── computeHealth — outliers ──────────────────────────────────────────────────
 
 test("computeHealth — outliers empty when not enough snapshots", () => {
-  // One outlier-looking cell but only 1 snapshot (need OUTLIER_SNAP_WINDOW)
   const voltages = Array(16).fill(3200);
-  voltages[3] = 3140; // 60 mV below avg (~3196) — above HEALTH_OUTLIER_MV (35)
+  voltages[3] = 3140;
   const snaps = [makeSnap([makeBatEntry({ voltages, power: -500 })], 5)];
   assert.deepEqual(computeHealth([makeBat({ cellVoltages: voltages })], snaps)["SN1"].outliers, []);
 });
 
 test("computeHealth — outlier flagged when persistently low across required snapshots", () => {
-  // 4 cells: 3 normal, 1 weak cell (cell 4, index 3)
-  // avg = (3200*15 + 3140) / 16 = 3196.25; cell 4 deviation = -56.25 mV < -35
   const voltages = Array(16).fill(3200);
   voltages[3] = 3140;
   const snapEntry = makeBatEntry({ voltages, power: -500 });
@@ -155,7 +152,7 @@ test("computeHealth — outlier flagged when persistently low across required sn
 test("computeHealth — outlier not flagged when snapshot shows charging (power >= 0)", () => {
   const voltages = Array(16).fill(3200);
   voltages[3] = 3140;
-  const snapEntry = makeBatEntry({ voltages, power: 0 }); // charging/standby — skip
+  const snapEntry = makeBatEntry({ voltages, power: 0 });
   const snaps = Array.from({ length: OUTLIER_SNAP_WINDOW }, (_, i) =>
     makeSnap([snapEntry], i * 10));
   const r = computeHealth([makeBat({ cellVoltages: voltages })], snaps);
@@ -169,7 +166,6 @@ test("computeHealth — avgCRate null with no snapshots", () => {
 });
 
 test("computeHealth — avgCRate computed from discharge snapshots", () => {
-  // ratedW = 100 Ah × 50 V = 5000 W; power = -1000 W → C-rate = 0.2
   const bat   = makeBat({ capacityAh: 100, voltage: 50 });
   const snaps = [makeSnap([makeBatEntry({ power: -1000 })], 10)];
   const rate  = computeHealth([bat], snaps)["SN1"].avgCRate;
@@ -178,13 +174,13 @@ test("computeHealth — avgCRate computed from discharge snapshots", () => {
 });
 
 test("computeHealth — avgCRate averages multiple snapshots", () => {
-  const bat   = makeBat({ capacityAh: 100, voltage: 50 }); // ratedW = 5000
+  const bat   = makeBat({ capacityAh: 100, voltage: 50 });
   const snaps = [
-    makeSnap([makeBatEntry({ power: -500  })], 20), // 0.1
-    makeSnap([makeBatEntry({ power: -1500 })], 10), // 0.3
+    makeSnap([makeBatEntry({ power: -500  })], 20),
+    makeSnap([makeBatEntry({ power: -1500 })], 10),
   ];
   const rate = computeHealth([bat], snaps)["SN1"].avgCRate;
-  assert.equal(rate, 0.2); // avg of [0.1, 0.3]
+  assert.equal(rate, 0.2);
 });
 
 // ── computeHealth — dischargeDelta ────────────────────────────────────────────
@@ -195,7 +191,6 @@ test("computeHealth — dischargeDelta null with fewer than DISCHARGE_DELTA_MIN_
 });
 
 test("computeHealth — dischargeDelta is median of qualifying discharge snapshots", () => {
-  // 3 snaps with deltas [10, 20, 15]; sorted = [10, 15, 20]; median = 15
   const snaps = [
     makeSnap([makeBatEntry({ power: -500, cellDelta: 10 })], 30),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 20 })], 20),
@@ -206,7 +201,7 @@ test("computeHealth — dischargeDelta is median of qualifying discharge snapsho
 
 test("computeHealth — dischargeDelta excludes charging snapshots", () => {
   const snaps = [
-    makeSnap([makeBatEntry({ power:  500, cellDelta:  5 })], 40), // charging → excluded
+    makeSnap([makeBatEntry({ power:  500, cellDelta:  5 })], 40),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 10 })], 30),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 15 })], 20),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 20 })], 10),
@@ -215,9 +210,8 @@ test("computeHealth — dischargeDelta excludes charging snapshots", () => {
 });
 
 test("computeHealth — dischargeDelta excludes snapshots where delta >= 30 mV", () => {
-  // cellDelta of 30 is on the boundary and should be excluded (>= 30 is disqualified)
   const snaps = [
-    makeSnap([makeBatEntry({ power: -500, cellDelta: 30 })], 30), // excluded (>= 30)
+    makeSnap([makeBatEntry({ power: -500, cellDelta: 30 })], 30),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 10 })], 20),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 15 })], 10),
     makeSnap([makeBatEntry({ power: -500, cellDelta: 20 })], 5),
@@ -255,7 +249,7 @@ test("computeHealth — empty battery array returns empty result", () => {
 // ── computeAutonomy — discharge rate selection ────────────────────────────────
 
 test("computeAutonomy — uses live discharge rate when actively discharging", () => {
-  const bat = makeBat({ power: -2000 }); // 2 kW live discharge
+  const bat = makeBat({ power: -2000 });
   const r   = computeAutonomy([bat], []);
   assert.equal(r.dischargeRateKw, 2);
 });
@@ -267,8 +261,11 @@ test("computeAutonomy — falls back to defaultDischargeKw when not discharging 
 
 test("computeAutonomy — uses snapshot history rate when available and not live-discharging", () => {
   const bat  = makeBat({ power: 0 });
-  const snap = { ts: new Date().toISOString(), batteries: [{ sn: "SN1", power: -2000 }] };
-  const r    = computeAutonomy([bat], [snap]);
+  const snap: BatterySnapshot = {
+    ts: new Date().toISOString(),
+    batteries: [{ sn: "SN1", power: -2000 } as unknown as SnapshotEntry],
+  };
+  const r = computeAutonomy([bat], [snap]);
   assert.equal(r.dischargeRateKw, 2);
 });
 
@@ -285,13 +282,11 @@ test("computeAutonomy — dischargeRateKw clamped at MAX_DISCHARGE_RATE_KW", () 
 // ── computeAutonomy — estimatedHours ─────────────────────────────────────────
 
 test("computeAutonomy — estimatedHours = usable / rate", () => {
-  // 10 kWh remaining, 0% min reserve, 1 kW rate → 10 h
   const bat = makeBat({ power: -1000, remainingKwh: 10, ratedEnergyKwh: 10 });
   assert.equal(computeAutonomy([bat], [], { minSocPct: 0 }).estimatedHours, 10);
 });
 
 test("computeAutonomy — minSocPct reserves capacity and reduces hours", () => {
-  // 10 kWh, 10% reserve (= 1 kWh), usable = 9 kWh, 1 kW → 9 h
   const bat = makeBat({ power: -1000, remainingKwh: 10, ratedEnergyKwh: 10 });
   assert.equal(computeAutonomy([bat], [], { minSocPct: 10 }).estimatedHours, 9);
 });
@@ -303,7 +298,6 @@ test("computeAutonomy — estimatedHoursToFull null when not charging", () => {
 });
 
 test("computeAutonomy — estimatedHoursToFull computed when charging", () => {
-  // 1 kW charge, SOC 50%, capacity 10 kWh → 5 kWh to full → 5 h
   const bat = makeBat({ power: 1000, soc: 50, ratedEnergyKwh: 10 });
   assert.equal(computeAutonomy([bat], []).estimatedHoursToFull, 5);
 });
@@ -318,12 +312,12 @@ test("computeAutonomy — estimatedSocAtSunrise within [minSocPct, 100]", () => 
   const bat     = makeBat({ power: -1000, remainingKwh: 5, ratedEnergyKwh: 10, soc: 50 });
   const sunrise = new Date(Date.now() + 8 * 3_600_000).toISOString();
   const r       = computeAutonomy([bat], [], { sunriseAt: sunrise, minSocPct: 5 });
-  assert.ok(r.estimatedSocAtSunrise >= 5 && r.estimatedSocAtSunrise <= 100);
+  assert.ok(r.estimatedSocAtSunrise != null && r.estimatedSocAtSunrise >= 5 && r.estimatedSocAtSunrise <= 100);
 });
 
 test("computeAutonomy — estimatedSocAtSunrise is 100 when sunrise is in the past and battery is full", () => {
   const bat     = makeBat({ power: 0, remainingKwh: 16, ratedEnergyKwh: 16, soc: 100 });
-  const sunrise = new Date(Date.now() - 1000).toISOString(); // already passed
+  const sunrise = new Date(Date.now() - 1000).toISOString();
   const r       = computeAutonomy([bat], [], { sunriseAt: sunrise, minSocPct: 5 });
   assert.equal(r.estimatedSocAtSunrise, 100);
 });
@@ -352,7 +346,7 @@ test("computeAutonomy — perBattery has one entry per battery", () => {
 test("computeAutonomy — perBattery remainingKwh matches input", () => {
   const bat = makeBat({ remainingKwh: 7.654 });
   const r   = computeAutonomy([bat], []);
-  assert.equal(r.perBattery[0].remainingKwh, 7.7); // rounded to 1 decimal
+  assert.equal(r.perBattery[0].remainingKwh, 7.7);
 });
 
 // ── computeAutonomy — new aggregate fields ────────────────────────────────────
@@ -364,7 +358,6 @@ test("computeAutonomy — totalCapacityKwh uses ratedEnergyKwh when available", 
 });
 
 test("computeAutonomy — totalCapacityKwh back-calculated from remainingKwh/soc when ratedEnergyKwh is null", () => {
-  // capacity = 10 / 0.8 = 12.5 kWh
   const bat = makeBat({ ratedEnergyKwh: null, remainingKwh: 10, soc: 80 });
   const r   = computeAutonomy([bat], []);
   assert.equal(r.totalCapacityKwh, 12.5);
@@ -386,9 +379,8 @@ test("computeAutonomy — estimatedDischargeKwh null when sunriseAt not provided
 
 test("computeAutonomy — estimatedDischargeKwh = rate × hoursToSunrise", () => {
   const bat     = makeBat({ power: -2000, remainingKwh: 10, ratedEnergyKwh: 10 });
-  const sunrise = new Date(Date.now() + 3 * 3_600_000).toISOString(); // 3 h away
+  const sunrise = new Date(Date.now() + 3 * 3_600_000).toISOString();
   const r       = computeAutonomy([bat], [], { sunriseAt: sunrise });
-  // rate = 2 kW, ~3 h → ~6 kWh (allow ±0.2 for rounding)
   assert.ok(r.estimatedDischargeKwh != null && Math.abs(r.estimatedDischargeKwh - 6) < 0.2);
 });
 
@@ -401,6 +393,5 @@ test("computeAutonomy — estimatedRemainingKwh consistent with estimatedSocAtSu
   const sunrise = new Date(Date.now() + 4 * 3_600_000).toISOString();
   const r       = computeAutonomy([bat], [], { sunriseAt: sunrise, minSocPct: 5 });
   assert.ok(r.estimatedRemainingKwh != null);
-  // estimatedRemainingKwh should be >= 5% of capacity (floor)
   assert.ok(r.estimatedRemainingKwh >= r.totalCapacityKwh * 0.05 - 0.1);
 });

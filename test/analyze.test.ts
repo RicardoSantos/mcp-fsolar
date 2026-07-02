@@ -1,59 +1,60 @@
-"use strict";
-
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const {
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
   computeAlerts,
   computeEnergyHistory,
   computeCellStats,
   computePowerStats,
   AlertSeverity,
-} = require("../src/analyze");
-const {
+} from "../src/analyze";
+import {
   HEALTH_CELL_DELTA_WARN,
   HEALTH_CELL_DELTA_CRIT,
   HEALTH_TEMP_WARN,
   HEALTH_TEMP_CRIT,
   HEALTH_SOH_WARN,
-} = require("../src/compute");
+} from "../src/compute";
+import type { BatteryHealth } from "../src/compute";
+import type { Battery } from "../src/battery";
+import type { BatterySnapshot } from "../src/store";
+import type { SnapshotEntry } from "../src/helpers";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-function makeBat(overrides = {}) {
+function makeBat(overrides: Record<string, unknown> = {}): Battery {
   return {
     sn: "SN1", alias: "Bat1",
     cellDelta: 50, tempMax: 35, soh: 95,
     warningCount: 0, batUnderVoltageCount: 0, dataTime: null,
     ...overrides,
-  };
+  } as unknown as Battery;
 }
 
-function makeHealth(overrides = {}) {
-  return { outliers: [], ...overrides };
+function makeHealth(overrides: Record<string, unknown> = {}): BatteryHealth {
+  return { outliers: [], ...overrides } as unknown as BatteryHealth;
 }
 
-function makeBatEntry(overrides = {}) {
+function makeBatEntry(overrides: Record<string, unknown> = {}): SnapshotEntry {
   return {
     sn: "SN1", alias: "Bat1",
     power: -500,
     voltages: Array(16).fill(3200),
     soc: 80, soh: 99, cellDelta: 10,
     ...overrides,
-  };
+  } as unknown as SnapshotEntry;
 }
 
-function makeSnap(ts, batteries) {
+function makeSnap(ts: string, batteries: SnapshotEntry[]): BatterySnapshot {
   return { ts, batteries };
 }
 
-function isoAt(minutesFromNow) {
+function isoAt(minutesFromNow: number): string {
   return new Date(Date.now() + minutesFromNow * 60_000).toISOString();
 }
 
-// Produces "YYYY-MM-DD HH:MM:SS" in local time — matches the format bat.dataTime uses
-function localTimeString(minutesAgo = 0) {
+function localTimeString(minutesAgo = 0): string {
   const d   = new Date(Date.now() - minutesAgo * 60_000);
-  const pad = (n) => String(n).padStart(2, "0");
+  const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
          `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
@@ -181,11 +182,11 @@ test("computeAlerts — crits come before warns come before infos", () => {
     tempMax: HEALTH_TEMP_WARN,
     batUnderVoltageCount: 1,
   });
-  const alerts = computeAlerts([bat], { SN1: makeHealth() });
+  const alerts    = computeAlerts([bat], { SN1: makeHealth() });
   const severities = alerts.map((a) => a.severity);
-  const critIdx  = severities.indexOf(AlertSeverity.CRIT);
-  const warnIdx  = severities.indexOf(AlertSeverity.WARN);
-  const infoIdx  = severities.indexOf(AlertSeverity.INFO);
+  const critIdx   = severities.indexOf(AlertSeverity.CRIT);
+  const warnIdx   = severities.indexOf(AlertSeverity.WARN);
+  const infoIdx   = severities.indexOf(AlertSeverity.INFO);
   if (critIdx >= 0 && warnIdx >= 0) assert.ok(critIdx < warnIdx);
   if (warnIdx >= 0 && infoIdx  >= 0) assert.ok(warnIdx < infoIdx);
 });
@@ -202,7 +203,6 @@ test("computeEnergyHistory — returns empty array with < 2 snapshots", () => {
 });
 
 test("computeEnergyHistory — accumulates discharged kWh across consecutive snapshots", () => {
-  // 2 snapshots 1 h apart, 1000 W discharge → 1 kWh
   const t0 = new Date("2026-07-01T10:00:00Z").toISOString();
   const t1 = new Date("2026-07-01T11:00:00Z").toISOString();
   const snaps = [
@@ -230,7 +230,7 @@ test("computeEnergyHistory — accumulates charged kWh correctly", () => {
 
 test("computeEnergyHistory — skips gaps > 2 h between snapshots", () => {
   const t0 = new Date("2026-07-01T00:00:00Z").toISOString();
-  const t1 = new Date("2026-07-01T03:00:00Z").toISOString(); // 3-h gap
+  const t1 = new Date("2026-07-01T03:00:00Z").toISOString();
   const snaps = [
     makeSnap(t0, [makeBatEntry({ power: -1000 })]),
     makeSnap(t1, [makeBatEntry({ power: -1000 })]),
@@ -340,13 +340,12 @@ test("computePowerStats — peakDischargeKw is the max discharge kW seen", () =>
 
 test("computePowerStats — avgCRate null when no ratedEnergyKwh provided", () => {
   const snaps = [makeSnap(isoAt(-10), [makeBatEntry({ power: -2000 })])];
-  const stats = computePowerStats(snaps, [{ ratedEnergyKwh: null }]);
+  const stats = computePowerStats(snaps, [{ ratedEnergyKwh: null }] as unknown as Battery[]);
   assert.equal(stats.avgCRate, null);
 });
 
 test("computePowerStats — avgCRate computed when ratedEnergyKwh > 0", () => {
-  // 4 kW discharge, 8 kWh total rated → C-rate = 4/8 = 0.5
   const snaps = [makeSnap(isoAt(-10), [makeBatEntry({ power: -4000 })])];
-  const stats = computePowerStats(snaps, [{ ratedEnergyKwh: 8 }]);
+  const stats = computePowerStats(snaps, [{ ratedEnergyKwh: 8 }] as unknown as Battery[]);
   assert.equal(stats.avgCRate, 0.5);
 });

@@ -1,11 +1,9 @@
-"use strict";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { AppError } from "../src/errors";
+import { constants } from "node:http2";
 
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const { AppError } = require("../src/errors");
-const { constants: { HTTP_STATUS_INTERNAL_SERVER_ERROR,
-                     HTTP_STATUS_NOT_FOUND,
-                     HTTP_STATUS_BAD_REQUEST } } = require("node:http2");
+const { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_BAD_REQUEST } = constants;
 
 test("AppError is instanceof Error", () => {
   assert.ok(new AppError("oops") instanceof Error);

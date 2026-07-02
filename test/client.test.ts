@@ -1,8 +1,6 @@
-"use strict";
-
-const { test } = require("node:test");
-const assert   = require("node:assert/strict");
-const { FelicityClient, MemoryCacheAdapter } = require("../index");
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { FelicityClient, MemoryCacheAdapter, type FelicityClientOptions } from "../index";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -32,8 +30,8 @@ const SNAP = {
   },
 };
 
-function routingMock(overrides = {}) {
-  return async (method, urlPath) => {
+function routingMock(overrides: Record<string, unknown> = {}) {
+  return async (method: string, urlPath: string, _body?: unknown, _token?: string | null): Promise<unknown> => {
     if (urlPath in overrides) return overrides[urlPath];
     if (urlPath === "/userlogin")                    return LOGIN_OK;
     if (urlPath === "/device/list_device_all_type")  return DEVICE_LIST;
@@ -42,8 +40,8 @@ function routingMock(overrides = {}) {
   };
 }
 
-function makeClient(overrides = {}, extra = {}) {
-  return new FelicityClient({ user: "u@test.com", pass: "pass", _fetch: routingMock(overrides), ...extra });
+function makeClient(overrides: Record<string, unknown> = {}, extra: Partial<FelicityClientOptions> = {}) {
+  return new FelicityClient({ user: "u@test.com", pass: "pass", _fetch: routingMock(overrides), ...extra } as FelicityClientOptions);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -76,7 +74,7 @@ test("getBatteries returns fromCache on second call", async () => {
   const callsAfterFirst = fetchCalls;
   const { fromCache } = await client.getBatteries();
   assert.equal(fromCache, true);
-  assert.equal(fetchCalls, callsAfterFirst); // no new network calls
+  assert.equal(fetchCalls, callsAfterFirst);
 });
 
 test("getBatteries includes fetchedAt timestamp", async () => {
@@ -115,13 +113,13 @@ test("getBatteries throws on device list failure", async () => {
 
 test("token is reused within expiry window", async () => {
   let loginCalls = 0;
-  const fetch = async (m, path, body) => {
+  const fetch = async (m: string, path: string, body?: unknown) => {
     if (path === "/userlogin") { loginCalls++; return LOGIN_OK; }
     return routingMock()(m, path, body);
   };
   const client = new FelicityClient({ user: "u", pass: "p", _fetch: fetch });
   await client.getBatteries();
-  await client.getBatteries(); // second call — token already valid
+  await client.getBatteries();
   assert.equal(loginCalls, 1);
 });
 
@@ -131,7 +129,7 @@ test("non-BP devices are filtered out", async () => {
     data: {
       dataList: [
         { deviceSn: "INV001", alias: "Inverter", deviceType: "INVERTER", deviceModel: "INV", status: "NM", battSoc: "0", bmsPower: "0", battCapacity: "0", wifiSignal: "0" },
-        { deviceSn: "SN001", alias: "Bat1",     deviceType: "BP",       deviceModel: "MOD", status: "NM", battSoc: "80", bmsPower: "0", battCapacity: "314", wifiSignal: "-60" },
+        { deviceSn: "SN001",  alias: "Bat1",     deviceType: "BP",       deviceModel: "MOD", status: "NM", battSoc: "80", bmsPower: "0", battCapacity: "314", wifiSignal: "-60" },
       ],
     },
   };

@@ -9,3 +9,5 @@ PLAN.md
 
 # scratch / old probes
 probe.ts
+probe.js
+*.tgz

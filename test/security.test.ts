@@ -247,6 +247,11 @@ describe("webhook URL validation", () => {
     { url: "not-a-url",                   label: "not a URL" },
     { url: "",                            label: "empty string" },
     { url: "http://",                     label: "bare http://" },
+    { url: "http://localhost/",           label: "localhost target (SSRF)" },
+    { url: "http://127.0.0.1/",          label: "loopback IP (SSRF)" },
+    { url: "http://192.168.1.1/",        label: "RFC-1918 target (SSRF)" },
+    { url: "http://10.0.0.1/",           label: "RFC-1918 10.x target (SSRF)" },
+    { url: "http://169.254.169.254/",    label: "link-local (cloud metadata SSRF)" },
   ];
 
   for (const { url, label } of bad) {
@@ -267,6 +272,17 @@ describe("webhook URL validation", () => {
         : (r.body as { id?: string } | null)?.id ?? null;
       if (bodyId) await req("DELETE", `/hooks/${bodyId}`, { headers: authHeaders() });
     }
+  });
+
+  it("secret is never returned in GET /hooks list", async (t) => {
+    if (!guard(t)) return;
+    const add = await req("POST", "/hooks", { headers: authHeaders(), body: { url: "https://webhook.example.com/felicity", secret: "mysecret" } });
+    assert.ok(add.status === HTTP_STATUS_CREATED || add.status === HTTP_STATUS_OK);
+    const id = (add.body as Record<string, unknown>)?.id;
+    const list = await req("GET", "/hooks", { headers: authHeaders() });
+    const hook = (list.body as Record<string, unknown>[] | null)?.find?.((h) => h["id"] === id);
+    assert.ok(!hook?.["secret"], "secret must be stripped from hook list response");
+    if (id) await req("DELETE", `/hooks/${id}`, { headers: authHeaders() });
   });
 
   it("accepts valid http URL", async (t) => {
@@ -307,6 +323,12 @@ describe("security headers", () => {
     const r = await req("GET", "/batteries", { headers: authHeaders() });
     assert.equal(r.headers["x-content-type-options"], "nosniff",
       "missing X-Content-Type-Options: nosniff");
+  });
+
+  it("Cache-Control: no-store is present", async (t) => {
+    if (!guard(t)) return;
+    const r = await req("GET", "/batteries", { headers: authHeaders() });
+    assert.equal(r.headers["cache-control"], "no-store");
   });
 
   it("no Server header leaking implementation details", async (t) => {

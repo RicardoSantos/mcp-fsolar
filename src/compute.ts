@@ -2,29 +2,25 @@ import { clamp }        from "./helpers";
 import { HealthStatus } from "./enums";
 import type { Battery } from "./battery";
 import type { BatterySnapshot } from "./store";
+import {
+  HEALTH_CELL_DELTA_WARN, HEALTH_CELL_DELTA_CRIT,
+  HEALTH_TEMP_WARN, HEALTH_TEMP_CRIT,
+  HEALTH_OUTLIER_MV, HEALTH_SOH_WARN,
+  OUTLIER_SNAP_WINDOW, CRATE_SNAP_WINDOW,
+  NOMINAL_VOLTAGE_V, MIN_POWER_FOR_CRATE_W,
+  DISCHARGE_DELTA_MAX_MV, DISCHARGE_DELTA_MIN_SNAPS,
+  MIN_ACTIVE_DISCHARGE_W, MIN_ACTIVE_CHARGE_W, MIN_ACTIVE_BAT_W,
+  MIN_DISCHARGE_RATE_KW, MAX_DISCHARGE_RATE_KW,
+} from "./constants";
 
-// ── Health thresholds ─────────────────────────────────────────────────────────
-export const HEALTH_CELL_DELTA_WARN = 120;
-export const HEALTH_CELL_DELTA_CRIT = 200;
-export const HEALTH_TEMP_WARN       = 40;
-export const HEALTH_TEMP_CRIT       = 50;
-export const HEALTH_OUTLIER_MV      = 35;
-export const HEALTH_SOH_WARN        = 90;
-
-// ── computeHealth tuning ──────────────────────────────────────────────────────
-export const OUTLIER_SNAP_WINDOW       = 3;
-export const CRATE_SNAP_WINDOW         = 6;
-export const NOMINAL_VOLTAGE_V         = 48;
-export const MIN_POWER_FOR_CRATE_W     = 50;
-export const DISCHARGE_DELTA_MAX_MV    = 30;
-export const DISCHARGE_DELTA_MIN_SNAPS = 3;
-
-// ── computeAutonomy tuning ────────────────────────────────────────────────────
-export const MIN_ACTIVE_DISCHARGE_W  = 100;
-export const MIN_ACTIVE_CHARGE_W     = 50;
-export const MIN_ACTIVE_BAT_W        = 50;
-export const MIN_DISCHARGE_RATE_KW   = 0.2;
-export const MAX_DISCHARGE_RATE_KW   = 24;
+// Re-export constants used by tests that import from this module (legacy import path)
+export {
+  HEALTH_CELL_DELTA_WARN, HEALTH_CELL_DELTA_CRIT,
+  HEALTH_TEMP_WARN, HEALTH_TEMP_CRIT,
+  HEALTH_OUTLIER_MV, HEALTH_SOH_WARN,
+  OUTLIER_SNAP_WINDOW, DISCHARGE_DELTA_MIN_SNAPS,
+  MIN_DISCHARGE_RATE_KW, MAX_DISCHARGE_RATE_KW,
+};
 
 export interface BatteryHealth {
   alias:           string;

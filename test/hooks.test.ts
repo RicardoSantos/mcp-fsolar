@@ -23,6 +23,7 @@ interface HookStorePrivate {
   _saveCooldowns: () => void;
   _deliveryLog:   Map<string, HookDelivery[]>;
   _deliver:       (hook: Record<string, unknown>, event: string, payload: Record<string, unknown>) => Promise<boolean>;
+  _httpPost:      (url: string, body: string, headers: Record<string, string | number>) => Promise<{ ok: boolean; status: number }>;
 }
 
 function priv(hs: HookStore): HookStorePrivate {
@@ -414,4 +415,78 @@ test("fire — hook subscribed only to ALERT does not receive per-battery events
   await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
   assert.ok(!sent.some((e) => e.event === HookEvent.BMS_WARNINGS), "BMS_WARNINGS should not reach ALERT-only hook");
   assert.ok(sent.some((e) => e.event === HookEvent.ALERT), "ALERT should still be delivered");
+});
+
+// ── HMAC signing ──────────────────────────────────────────────────────────────
+
+import crypto from "crypto";
+
+function captureHttpPost(hs: HookStore): Array<{ url: string; body: string; headers: Record<string, string | number> }> {
+  const captured: Array<{ url: string; body: string; headers: Record<string, string | number> }> = [];
+  priv(hs)._httpPost = (url, body, headers) => {
+    captured.push({ url, body, headers });
+    return Promise.resolve({ ok: true, status: 200 });
+  };
+  return captured;
+}
+
+test("_deliver — per-hook secret adds X-Hub-Signature-256 header", async () => {
+  const hs     = makeStore();
+  const secret = "mysecret";
+  const hook   = priv(hs)._hooks;
+  hook.push({ id: "h1", url: "https://example.com/wh", events: [], secret, createdAt: new Date().toISOString() });
+  const posts = captureHttpPost(hs);
+  await priv(hs)._deliver(hook[0], "test_event", { value: 1 });
+  assert.equal(posts.length, 1);
+  const sig = posts[0].headers["X-Hub-Signature-256"] as string;
+  assert.ok(sig?.startsWith("sha256="), "header should start with sha256=");
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(posts[0].body).digest("hex");
+  assert.equal(sig, expected, "HMAC signature must match");
+});
+
+test("_deliver — no secret means no X-Hub-Signature-256 header", async () => {
+  const hs   = makeStore();
+  const hook = priv(hs)._hooks;
+  hook.push({ id: "h2", url: "https://example.com/wh", events: [], secret: null, createdAt: new Date().toISOString() });
+  delete process.env.FELICITY_WEBHOOK_SECRET;
+  const posts = captureHttpPost(hs);
+  await priv(hs)._deliver(hook[0], "test_event", {});
+  assert.equal(posts.length, 1);
+  assert.ok(!posts[0].headers["X-Hub-Signature-256"], "no secret → no HMAC header");
+});
+
+test("_deliver — FELICITY_WEBHOOK_SECRET env var signs delivery when hook has no per-hook secret", async () => {
+  const hs     = makeStore();
+  const secret = "global-secret";
+  process.env.FELICITY_WEBHOOK_SECRET = secret;
+  try {
+    const hook = priv(hs)._hooks;
+    hook.push({ id: "h3", url: "https://example.com/wh", events: [], secret: null, createdAt: new Date().toISOString() });
+    const posts = captureHttpPost(hs);
+    await priv(hs)._deliver(hook[0], "test_event", {});
+    assert.equal(posts.length, 1);
+    const sig      = posts[0].headers["X-Hub-Signature-256"] as string;
+    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(posts[0].body).digest("hex");
+    assert.equal(sig, expected, "global FELICITY_WEBHOOK_SECRET must be used for signing");
+  } finally {
+    delete process.env.FELICITY_WEBHOOK_SECRET;
+  }
+});
+
+test("_deliver — per-hook secret takes precedence over FELICITY_WEBHOOK_SECRET", async () => {
+  const hs          = makeStore();
+  const hookSecret  = "hook-secret";
+  const globalSecret = "global-secret";
+  process.env.FELICITY_WEBHOOK_SECRET = globalSecret;
+  try {
+    const hook = priv(hs)._hooks;
+    hook.push({ id: "h4", url: "https://example.com/wh", events: [], secret: hookSecret, createdAt: new Date().toISOString() });
+    const posts = captureHttpPost(hs);
+    await priv(hs)._deliver(hook[0], "test_event", {});
+    const sig      = posts[0].headers["X-Hub-Signature-256"] as string;
+    const expected = "sha256=" + crypto.createHmac("sha256", hookSecret).update(posts[0].body).digest("hex");
+    assert.equal(sig, expected, "per-hook secret must override global env var");
+  } finally {
+    delete process.env.FELICITY_WEBHOOK_SECRET;
+  }
 });

@@ -1,7 +1,8 @@
-import { TrendDirection }                                     from "./enums";
+import { TrendDirection }                                          from "./enums";
 import { HEALTH_CELL_DELTA_CRIT, HEALTH_CELL_DELTA_WARN,
-         HEALTH_TEMP_CRIT, HEALTH_TEMP_WARN, HEALTH_SOH_WARN } from "./compute";
-import { CELLS_PER_MODULE }                                    from "./battery";
+         HEALTH_TEMP_CRIT, HEALTH_TEMP_WARN, HEALTH_SOH_WARN,
+         ALERT_STALE_MIN }                                        from "./constants";
+import { CELLS_PER_MODULE }                                       from "./battery";
 import type { BatterySnapshot }                                from "./store";
 import type { Battery }                                        from "./battery";
 import type { BatteryHealth }                                  from "./compute";
@@ -23,7 +24,6 @@ export interface Alert {
   message:  string;
 }
 
-const ALERT_STALE_MIN = 30;
 const _alertRank = (s: AlertSeverity): number =>
   s === AlertSeverity.CRIT ? 0 : s === AlertSeverity.WARN ? 1 : 2;
 

@@ -31,6 +31,14 @@ function _hmac(s: string): Buffer {
 export function makeCheckAuth(apiKey: string | null): (req: http.IncomingMessage, res: http.ServerResponse) => boolean {
   return function checkAuth(req, res) {
     if (!apiKey) return true;
+
+    const reqUrl = new URL(req.url ?? "/", "http://localhost");
+    if (reqUrl.searchParams.has("key") || reqUrl.searchParams.has("api_key")) {
+      res.writeHead(HTTP_STATUS_UNAUTHORIZED, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "API keys in query strings are not supported" }));
+      return false;
+    }
+
     const raw   = (req.headers["authorization"] ?? req.headers["x-api-key"] ?? "") as string;
     const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
     const valid = token.length > 0 && crypto.timingSafeEqual(_hmac(token), _hmac(apiKey));

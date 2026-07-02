@@ -11,8 +11,15 @@ import {
   HEALTH_TEMP_WARN,
   HEALTH_TEMP_CRIT,
   HEALTH_SOH_WARN,
-  type BatteryHealth,
-} from "./compute";
+  HOOK_DELIVERY_TIMEOUT_MS,
+  DEFAULT_HOOK_COOLDOWN_H,
+  DELIVERY_MAX_ATTEMPTS,
+  DELIVERY_LOG_SIZE,
+  MAX_RETRY_QUEUE,
+  RETRY_TTL_MS,
+  COOLDOWN_PRUNE_MS,
+} from "./constants";
+import type { BatteryHealth } from "./compute";
 import { computeAlerts } from "./analyze";
 import { ChargingState, HealthStatus, HookEvent } from "./enums";
 import { logger }                                  from "./logger";
@@ -22,13 +29,6 @@ import type { Battery }                            from "./battery";
 
 const { HTTP_STATUS_BAD_REQUEST } = constants;
 
-const HOOK_DELIVERY_TIMEOUT_MS = 8_000;
-const DEFAULT_COOLDOWN_H       = 4;
-const DELIVERY_MAX_ATTEMPTS    = 3;
-const DELIVERY_LOG_SIZE        = 50;
-const MAX_RETRY_QUEUE          = 200;
-const RETRY_TTL_MS             = 24 * 3_600_000;
-const COOLDOWN_PRUNE_MS        = 48 * 3_600_000;
 const VALID_EVENTS: Set<string> = new Set(Object.values(HookEvent));
 
 interface RetryEntry {
@@ -271,8 +271,9 @@ export class HookStore {
       "Content-Type":   "application/json",
       "Content-Length": Buffer.byteLength(body),
     };
-    if (hook.secret)
-      headers["X-Hub-Signature-256"] = "sha256=" + crypto.createHmac("sha256", hook.secret).update(body).digest("hex");
+    const signingSecret = hook.secret ?? process.env.FELICITY_WEBHOOK_SECRET ?? null;
+    if (signingSecret)
+      headers["X-Hub-Signature-256"] = "sha256=" + crypto.createHmac("sha256", signingSecret).update(body).digest("hex");
 
     let result   = { ok: false, status: 0 };
     let attempts = 0;
@@ -320,7 +321,7 @@ export class HookStore {
     }
 
     function _maybeQueue(events: FireEvent[], ev: FireEvent): void {
-      const cooldownH = HOOK_COOLDOWNS_H[ev.event] ?? DEFAULT_COOLDOWN_H;
+      const cooldownH = HOOK_COOLDOWNS_H[ev.event] ?? DEFAULT_HOOK_COOLDOWN_H;
       const key = `${ev.sn}:${ev.event}`;
       if (cooldowns[key] && now - cooldowns[key] < cooldownH * 3_600_000) return;
       cooldowns[key] = now;
@@ -386,7 +387,7 @@ export class HookStore {
     let fireFleetAlert = false;
     if (allAlerts.length > 0) {
       const alertKey       = "fleet:alert";
-      const alertCooldownH = HOOK_COOLDOWNS_H[HookEvent.ALERT] ?? DEFAULT_COOLDOWN_H;
+      const alertCooldownH = HOOK_COOLDOWNS_H[HookEvent.ALERT] ?? DEFAULT_HOOK_COOLDOWN_H;
       const cooldownExpired = !cooldowns[alertKey] || now - cooldowns[alertKey] >= alertCooldownH * 3_600_000;
       if (newAlerts.length > 0 || cooldownExpired) {
         cooldowns[alertKey] = now;

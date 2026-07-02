@@ -13,6 +13,7 @@ import {
   HEALTH_SOH_WARN,
   type BatteryHealth,
 } from "./compute";
+import { computeAlerts } from "./analyze";
 import { ChargingState, HealthStatus, HookEvent } from "./enums";
 import { logger }                                  from "./logger";
 import { sleep }                                   from "./helpers";
@@ -41,15 +42,27 @@ function _isPrivateHost(hostname: string): boolean {
 const LOW_SOC_PCT = parseInt(process.env.FELICITY_LOW_SOC_PCT ?? "20", 10);
 
 export const HOOK_COOLDOWNS_H: Record<string, number> = {
-  [HookEvent.CELL_DELTA_CRIT]: 1,
-  [HookEvent.CELL_DELTA_WARN]: 4,
-  [HookEvent.TEMP_CRIT]:       1,
-  [HookEvent.TEMP_WARN]:       4,
-  [HookEvent.SOH_WARN]:       24,
-  [HookEvent.LOW_SOC]:         2,
-  [HookEvent.FULL]:            8,
-  [HookEvent.ONLINE]:          1,
-  [HookEvent.OFFLINE]:         1,
+  [HookEvent.CELL_DELTA_CRIT]:     1,
+  [HookEvent.CELL_DELTA_WARN]:     4,
+  [HookEvent.TEMP_CRIT]:           1,
+  [HookEvent.TEMP_WARN]:           4,
+  [HookEvent.SOH_WARN]:           24,
+  [HookEvent.LOW_SOC]:             2,
+  [HookEvent.FULL]:                8,
+  [HookEvent.ONLINE]:              1,
+  [HookEvent.OFFLINE]:             1,
+  [HookEvent.OUTLIER]:            24,
+  [HookEvent.BMS_WARNINGS]:        4,
+  [HookEvent.UNDERVOLTAGE_EVENTS]: 24,
+  [HookEvent.STALE_DATA]:          2,
+  [HookEvent.ALERT]:               1,
+};
+
+const ALERT_CODE_TO_EVENT: Record<string, string | undefined> = {
+  outlier_cells:       HookEvent.OUTLIER,
+  bms_warnings:        HookEvent.BMS_WARNINGS,
+  undervoltage_events: HookEvent.UNDERVOLTAGE_EVENTS,
+  stale_data:          HookEvent.STALE_DATA,
 };
 
 function _hookFile(): string {
@@ -292,6 +305,28 @@ export class HookStore {
       }
     }
 
+    // Alert-derived per-battery events (outlier, bms_warnings, undervoltage_events, stale_data)
+    const allAlerts = computeAlerts(batteries, health);
+    for (const alert of allAlerts) {
+      const bat    = batteries.find((b) => b.alias === alert.battery);
+      const evCode = ALERT_CODE_TO_EVENT[alert.code];
+      if (bat && evCode) {
+        _maybeQueue(events, { event: evCode, sn: bat.sn, alias: bat.alias, value: null, threshold: null });
+      }
+    }
+
+    // Fleet-wide ALERT catch-all — fires with full alert list when any alert is active
+    let fireFleetAlert = false;
+    if (allAlerts.length > 0) {
+      const alertKey      = "fleet:alert";
+      const alertCooldownH = HOOK_COOLDOWNS_H[HookEvent.ALERT] ?? DEFAULT_COOLDOWN_H;
+      if (!cooldowns[alertKey] || now - cooldowns[alertKey] >= alertCooldownH * 3_600_000) {
+        cooldowns[alertKey] = now;
+        changed       = true;
+        fireFleetAlert = true;
+      }
+    }
+
     if (changed) this._saveCooldowns();
 
     for (const ev of events) {
@@ -299,6 +334,14 @@ export class HookStore {
         if (hook.events.length && !hook.events.includes(ev.event)) continue;
         this._deliver(hook, ev.event, { sn: ev.sn, alias: ev.alias, value: ev.value, threshold: ev.threshold })
           .catch(() => {/* fire-and-forget */});
+      }
+    }
+
+    if (fireFleetAlert) {
+      const alertPayload: Record<string, unknown> = { alerts: allAlerts, count: allAlerts.length };
+      for (const hook of hooks) {
+        if (hook.events.length && !hook.events.includes(HookEvent.ALERT)) continue;
+        this._deliver(hook, HookEvent.ALERT, alertPayload).catch(() => {/* fire-and-forget */});
       }
     }
   }

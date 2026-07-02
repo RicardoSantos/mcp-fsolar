@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.29] — 2026-07-02
+
+### Added
+- `HookEvent.OUTLIER` (`"outlier"`) — fires per battery when persistent outlier cells are detected
+- `HookEvent.BMS_WARNINGS` (`"bms_warnings"`) — fires per battery when BMS active warning count > 0 (4 h cooldown)
+- `HookEvent.UNDERVOLTAGE_EVENTS` (`"undervoltage_events"`) — fires per battery on cumulative under-voltage counter > 0 (24 h cooldown)
+- `HookEvent.STALE_DATA` (`"stale_data"`) — fires per battery when last BMS report is > 30 min old (2 h cooldown)
+- `HookEvent.ALERT` (`"alert"`) — fleet-wide catch-all: fires with the full `computeAlerts` list whenever any alert is active (1 h cooldown); payload includes `alerts[]` and `count`
+
+### Changed
+- `hookStore.fire()` now calls `computeAlerts(batteries, health)` each tick and routes alert codes to the new per-battery events and the fleet `alert` catch-all
+
 ## [1.0.28] — 2026-07-02
 
 ### Added

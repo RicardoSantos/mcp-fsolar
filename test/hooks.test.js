@@ -11,6 +11,7 @@ process.env.SNAPSHOT_DIR = path.join(os.tmpdir(), "fsolar-hooks-test-" + process
 
 const { HookStore }               = require("../src/hooks");
 const { HookEvent, HealthStatus, ChargingState } = require("../src/enums");
+const { HEALTH_TEMP_WARN }        = require("../src/compute");
 const { constants: { HTTP_STATUS_BAD_REQUEST } }  = require("node:http2");
 
 // ── Test double — in-memory HookStore with no disk I/O ───────────────────────
@@ -30,15 +31,34 @@ function makeBat(overrides = {}) {
            power: -500, ...overrides };
 }
 
+// Full Battery fixture — includes all fields that computeAlerts inspects
+function makeFullBat(overrides = {}) {
+  return {
+    sn: "SN1", alias: "Bat1", soc: 50, chargingState: ChargingState.DISCHARGING,
+    power: -500, cellDelta: null, tempMax: 25, soh: 95,
+    warningCount: 0, batUnderVoltageCount: 0, dataTime: null,
+    ...overrides,
+  };
+}
+
 function makeHealth(sn, overrides = {}) {
   return {
     [sn]: {
       cellDeltaStatus: HealthStatus.OK, cellDelta: 50,
       tempStatus: HealthStatus.OK, tempMax: 30,
       sohStatus: HealthStatus.OK, soh: 95,
+      outliers: [],
       ...overrides,
     },
   };
+}
+
+// Produces "YYYY-MM-DD HH:MM:SS" in local time — matches bat.dataTime format
+function localTimeAgo(minutesAgo = 0) {
+  const d   = new Date(Date.now() - minutesAgo * 60_000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // ── HookStore.add — URL validation ────────────────────────────────────────────
@@ -272,4 +292,110 @@ test("fire — hook filtered by events list (other events not sent)", async () =
   const sent = captureDelivers(hs);
   await hs.fire([makeBat({ soc: 5 })], {}); // only LOW_SOC triggered
   assert.equal(sent.length, 0, "hook subscribed to FULL should not receive LOW_SOC");
+});
+
+// ── HookStore.fire — alert-derived per-battery events ─────────────────────────
+
+test("fire — OUTLIER dispatched when health has outlier cells", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat()], makeHealth("SN1", { outliers: [4] }));
+  assert.ok(sent.some((e) => e.event === HookEvent.OUTLIER));
+});
+
+test("fire — OUTLIER not dispatched when outliers empty", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat()], makeHealth("SN1", { outliers: [] }));
+  assert.ok(!sent.some((e) => e.event === HookEvent.OUTLIER));
+});
+
+test("fire — BMS_WARNINGS dispatched when warningCount > 0", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 2 })], makeHealth("SN1"));
+  assert.ok(sent.some((e) => e.event === HookEvent.BMS_WARNINGS));
+});
+
+test("fire — BMS_WARNINGS not dispatched when warningCount is 0", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 0 })], makeHealth("SN1"));
+  assert.ok(!sent.some((e) => e.event === HookEvent.BMS_WARNINGS));
+});
+
+test("fire — UNDERVOLTAGE_EVENTS dispatched when batUnderVoltageCount > 0", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ batUnderVoltageCount: 3 })], makeHealth("SN1"));
+  assert.ok(sent.some((e) => e.event === HookEvent.UNDERVOLTAGE_EVENTS));
+});
+
+test("fire — STALE_DATA dispatched when dataTime is > 30 min ago", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ dataTime: localTimeAgo(35) })], makeHealth("SN1"));
+  assert.ok(sent.some((e) => e.event === HookEvent.STALE_DATA));
+});
+
+test("fire — STALE_DATA not dispatched when dataTime is recent", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ dataTime: localTimeAgo(5) })], makeHealth("SN1"));
+  assert.ok(!sent.some((e) => e.event === HookEvent.STALE_DATA));
+});
+
+// ── HookStore.fire — ALERT catch-all ─────────────────────────────────────────
+
+test("fire — ALERT dispatched with full alert list when any alert is active", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
+  const alertEv = sent.find((e) => e.event === HookEvent.ALERT);
+  assert.ok(alertEv, "ALERT event should be dispatched");
+  assert.ok(Array.isArray(alertEv.payload.alerts), "payload.alerts should be an array");
+  assert.ok(alertEv.payload.count > 0, "payload.count should be > 0");
+});
+
+test("fire — ALERT payload contains the triggering alert", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 2 })], makeHealth("SN1"));
+  const alertEv = sent.find((e) => e.event === HookEvent.ALERT);
+  assert.ok(alertEv?.payload.alerts.some((a) => a.code === "bms_warnings"));
+});
+
+test("fire — ALERT not dispatched when no alerts are active", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat()], makeHealth("SN1")); // all fields in healthy range
+  assert.ok(!sent.some((e) => e.event === HookEvent.ALERT));
+});
+
+test("fire — ALERT respects cooldown and fires only once", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
+  await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1")); // cooldown blocks
+  assert.equal(sent.filter((e) => e.event === HookEvent.ALERT).length, 1);
+});
+
+test("fire — hook subscribed only to ALERT does not receive per-battery events", async () => {
+  const hs = makeStore();
+  hs.add({ url: "https://example.com/hook", events: [HookEvent.ALERT] });
+  const sent = captureDelivers(hs);
+  await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
+  assert.ok(!sent.some((e) => e.event === HookEvent.BMS_WARNINGS), "BMS_WARNINGS should not reach ALERT-only hook");
+  assert.ok(sent.some((e) => e.event === HookEvent.ALERT), "ALERT should still be delivered");
 });

@@ -20,15 +20,20 @@ export const TrendDirection = Object.freeze({
 export type TrendDirection = typeof TrendDirection[keyof typeof TrendDirection];
 
 export const HookEvent = Object.freeze({
-  CELL_DELTA_CRIT: "cell_delta_crit",
-  CELL_DELTA_WARN: "cell_delta_warn",
-  TEMP_CRIT:       "temp_crit",
-  TEMP_WARN:       "temp_warn",
-  SOH_WARN:        "soh_warn",
-  LOW_SOC:         "low_soc",
-  FULL:            "full",
-  ONLINE:          "online",
-  OFFLINE:         "offline",
-  SNAPSHOT:        "snapshot",
+  CELL_DELTA_CRIT:     "cell_delta_crit",
+  CELL_DELTA_WARN:     "cell_delta_warn",
+  TEMP_CRIT:           "temp_crit",
+  TEMP_WARN:           "temp_warn",
+  SOH_WARN:            "soh_warn",
+  LOW_SOC:             "low_soc",
+  FULL:                "full",
+  ONLINE:              "online",
+  OFFLINE:             "offline",
+  SNAPSHOT:            "snapshot",
+  OUTLIER:             "outlier",
+  BMS_WARNINGS:        "bms_warnings",
+  UNDERVOLTAGE_EVENTS: "undervoltage_events",
+  STALE_DATA:          "stale_data",
+  ALERT:               "alert",
 } as const);
 export type HookEvent = typeof HookEvent[keyof typeof HookEvent];

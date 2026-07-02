@@ -2,6 +2,7 @@ import { nullableInt, nullableFloat } from "./helpers";
 import { ChargingState }              from "./enums";
 
 // ── Hardware constants (Felicity BP series) ───────────────────────────────────
+export const BATTERY_DEVICE_TYPE = "BP";
 export const BMS_CHARGING_REG    = 1;
 export const BMS_DISCHARGING_REG = 2;
 export const BMS_BALANCING_BIT   = 64;

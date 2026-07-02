@@ -3,7 +3,7 @@ import { RSA_PUB, TOKEN_TTL_MS, felicityRequest }                              f
 import { snapshotStore as _defaultSnapshotStore,
          dailySnapshotStore as _defaultDailySnapshotStore,
          type BatterySnapshot }                                                from "./store";
-import { buildBattery }                                                        from "./battery";
+import { buildBattery, BATTERY_DEVICE_TYPE }                                   from "./battery";
 import { MemoryCacheAdapter, type CacheAdapter }                               from "./cache";
 import { logger }                                                              from "./logger";
 import type { Battery }                                                        from "./battery";
@@ -113,13 +113,13 @@ export class FelicityClient {
 
       if (authFailed) continue;
 
-      const devices = allDevices.filter((d) => d.deviceType === "BP");
+      const devices = allDevices.filter((d) => d.deviceType === BATTERY_DEVICE_TYPE);
       const dateStr = new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
 
       const batteries = await Promise.all(
         devices.map(async (dev) => {
           const snap = await this._fetch("POST", "/device/get_device_snapshot",
-            { deviceSn: dev.deviceSn, deviceType: "BP", dateStr }, token) as ApiResponse;
+            { deviceSn: dev.deviceSn, deviceType: BATTERY_DEVICE_TYPE, dateStr }, token) as ApiResponse;
           if (snap.code !== 200) throw new Error(`Snapshot failed for ${dev.deviceSn}: ${snap.message ?? snap.code}`);
           return buildBattery(dev, snap.data as Record<string, unknown>);
         })

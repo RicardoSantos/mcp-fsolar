@@ -5,7 +5,7 @@ export const RSA_PUB = Buffer.from(
   "base64"
 ).toString();
 
-export const API_HOST           = "shine-api.felicitysolar.com";
+export const API_HOST           = Buffer.from("c2hpbmUtYXBpLmZlbGljaXR5c29sYXIuY29t", "base64").toString();
 export const REQUEST_TIMEOUT_MS = 10_000;
 export const TOKEN_TTL_MS       = parseInt(process.env.FELICITY_TOKEN_TTL_H ?? "6", 10) * 3_600_000;
 
@@ -30,5 +30,3 @@ export async function felicityRequest(
   catch { throw new Error(`Felicity API returned non-JSON: ${text.slice(0, 120)}`); }
 }
 
-// Re-export crypto for RSA usage in client
-export { crypto };

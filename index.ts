@@ -12,7 +12,7 @@ export { MemoryCacheAdapter, type CacheAdapter, type CacheValue } from "./src/ca
 
 // Battery
 export { buildBattery, type Battery, type BatteryModule,
-         BMS_BALANCING_BIT, DEFAULT_CAPACITY_AH, CELL_COUNT,
+         BATTERY_DEVICE_TYPE, BMS_BALANCING_BIT, DEFAULT_CAPACITY_AH, CELL_COUNT,
          MODULE_COUNT, CELLS_PER_MODULE, TEMP_SENTINEL_MAX_C } from "./src/battery";
 
 // Snapshot stores

@@ -163,4 +163,5 @@ throw new AppError("not found", 404);
 | `FELICITY_RATE_LIMIT` | `60` | Requests per minute per IP (`0` = disabled) |
 | `FELICITY_MODE` | auto | `http` forces HTTP mode; `stdio` forces stdio |
 | `FELICITY_TOKEN_TTL_H` | `6` | Felicity auth token lifetime in hours before proactive refresh |
+| `FELICITY_LOW_SOC_PCT` | `20` | SOC % threshold for the `low_soc` webhook event |
 | `SNAPSHOT_DIR` | `os.tmpdir()` | Directory for snapshot + hook persistence |

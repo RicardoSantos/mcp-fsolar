@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-## [1.0.25] — 2026-07-02
+## [1.0.26] — 2026-07-02
 
 ### Changed
 - **TypeScript conversion** — entire codebase (`src/*.ts`, `index.ts`, `server.ts`) converted from plain JavaScript to TypeScript with `strict: true`
@@ -22,6 +22,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - `tsconfig.json` — `target: ES2020`, `module: CommonJS`, `declaration: true`, `strict: true`, `types: ["node"]`
 - `tsx` dev dependency — used as test loader (`--require tsx/cjs`) so unit tests run directly against TypeScript source without a build step
+- `BATTERY_DEVICE_TYPE = "BP"` named constant in `src/battery.ts` — replaces magic string in client filter and snapshot request
+- CI workflow now runs `npm run build` before `npm test` to catch type errors that tests don't cover
+
+### Security
+- RSA public key encoded as base64 — no longer stored as plaintext PEM in source, reducing indexability on code search engines
+- API endpoint hostname encoded as base64 in source; removed as plain text from README
+
+### Removed
+- `probe.ts` — old raw-HTTPS probe superseded by `probe.js` (which uses `FelicityClient`); also contained the plaintext key
+- `dist/` removed from git — now built by the publish workflow on every release; `dist/` added to `.gitignore`
+- `.npmignore` removed — redundant given the `files` allowlist in `package.json`
+- `PLAN.md` removed — internal planning document not part of the project
 
 ## [1.0.18] — 2026-07-01
 

@@ -2,7 +2,7 @@
 
 Live Felicity Solar battery data for Claude, REST APIs, Node.js apps, and event-driven pipelines — all from one package.
 
-Connects to the [Felicity Solar](https://www.felicitysolar.com) cloud (`shine-api.felicitysolar.com`) and exposes per-cell voltages, SOC, SOH, temperatures, BMS counters, balancing state, and computed health metrics.
+Connects to the [Felicity Solar](https://www.felicitysolar.com) cloud and exposes per-cell voltages, SOC, SOH, temperatures, BMS counters, balancing state, and computed health metrics.
 
 ## Usage modes
 
@@ -565,7 +565,7 @@ startPoller(client)
 | `temp_crit` | tempMax ≥ 50 °C | 1 h |
 | `temp_warn` | tempMax ≥ 40 °C | 4 h |
 | `soh_warn` | SOH < 90 % | 24 h |
-| `low_soc` | SOC ≤ 25 % _(reserved)_ | 2 h |
+| `low_soc` | SOC ≤ `FELICITY_LOW_SOC_PCT` % (default 20) _(reserved)_ | 2 h |
 | `full` | SOC reaches 100 % _(reserved)_ | 8 h |
 | `online` | Battery comes online _(reserved)_ | 1 h |
 | `offline` | Battery goes offline _(reserved)_ | 1 h |
@@ -586,6 +586,8 @@ Thresholds match `computeHealth` constants (`HEALTH_CELL_DELTA_CRIT`, `HEALTH_TE
 | `FELICITY_CORS_ORIGIN` | No | localhost origins only | Allowed CORS origin. Set to `*` to open fully, or an explicit origin to lock down |
 | `FELICITY_RATE_LIMIT` | No | `60` | Max REST requests per minute per IP. Set to `0` to disable |
 | `FELICITY_POLL_MS` | No | `30000` | Felicity API poll interval (ms) |
+| `FELICITY_TOKEN_TTL_H` | No | `6` | Felicity auth token lifetime in hours before proactive refresh |
+| `FELICITY_LOW_SOC_PCT` | No | `20` | SOC % threshold that triggers the `low_soc` webhook event |
 | `FELICITY_TELEMETRY_MS` | No | `300000` | Snapshot emitter / webhook interval (ms) |
 | `FELICITY_SNAPSHOT_ENABLED` | No | `true` | Enable background snapshot store |
 | `FELICITY_SNAPSHOT_MS` | No | `600000` | Snapshot store interval (ms, min 60 000) |

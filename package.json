@@ -1,0 +1,61 @@
+{
+  "name": "fsolar-mcp",
+  "version": "1.0.25",
+  "description": "Felicity Solar battery MCP server + REST API — exposes live battery data to Claude Code and any MCP client",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "fsolar-mcp": "bin/fsolar-mcp.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "probe.js",
+    "docs/",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node bin/fsolar-mcp.js",
+    "probe": "node probe.js",
+    "test": "node --require tsx/cjs --test test/cache.test.js test/snapshot.test.js test/transform.test.js test/client.test.js test/errors.test.js test/logger.test.js test/helpers.test.js test/middleware.test.js test/compute.test.js test/hooks.test.js",
+    "test:security": "node --test test/security.test.js",
+    "setup": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "keywords": [
+    "felicity-solar",
+    "battery",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "solar",
+    "bms",
+    "iot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RicardoSantos/mcp-fsolar.git"
+  },
+  "homepage": "https://github.com/RicardoSantos/mcp-fsolar#readme",
+  "bugs": {
+    "url": "https://github.com/RicardoSantos/mcp-fsolar/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

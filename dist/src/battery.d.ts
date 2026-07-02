@@ -1,0 +1,56 @@
+import { ChargingState } from "./enums";
+export declare const BMS_CHARGING_REG = 1;
+export declare const BMS_DISCHARGING_REG = 2;
+export declare const BMS_BALANCING_BIT = 64;
+export declare const CELL_COUNT = 16;
+export declare const MODULE_COUNT = 4;
+export declare const CELLS_PER_MODULE = 4;
+export declare const DEFAULT_CAPACITY_AH = 314;
+export declare const TEMP_SENTINEL_MAX_C = 200;
+export interface BatteryModule {
+    index: number;
+    cells: number[];
+    temp: number | null;
+    min: number;
+    max: number;
+    delta: number;
+}
+export interface Battery {
+    sn: string;
+    alias: string;
+    model: string;
+    status: "NM" | "AL" | "FL" | "OF";
+    soc: number;
+    soh: number;
+    voltage: number;
+    current: number;
+    power: number;
+    chargingState: ChargingState;
+    tempMax: number;
+    tempMin: number;
+    cellTemps: number[];
+    cellVoltages: number[];
+    cellVoltageMax: number | null;
+    cellVoltageMin: number | null;
+    cellDelta: number | null;
+    maxCellNum: number | null;
+    minCellNum: number | null;
+    modules: BatteryModule[];
+    chargeVoltLimit: number | null;
+    dischargeVoltLimit: number | null;
+    chargeCurrLimit: number | null;
+    dischargeCurrLimit: number | null;
+    batCycleIndex: number | null;
+    batFullCount: number | null;
+    batUnderVoltageCount: number | null;
+    warningCount: number;
+    remainingKwh: number;
+    capacityAh: number;
+    ratedEnergyKwh: number | null;
+    dataTime: string | null;
+    reportFreqSec: number | null;
+    wifiSignal: number;
+    bmsState: number | null;
+    isBalancing: boolean;
+}
+export declare function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery;

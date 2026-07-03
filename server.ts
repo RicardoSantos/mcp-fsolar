@@ -531,8 +531,9 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     res.setHeader("Cache-Control", "no-store");
     if (req.method === "OPTIONS") { res.writeHead(HTTP_STATUS_NO_CONTENT); res.end(); return; }
 
-    if (url.pathname !== "/health" && !checkRateLimit(req, res)) return;
-    if (url.pathname !== "/health" && !checkAuth(req, res)) return;
+    const isPublic = url.pathname === "/health" || url.pathname === "/sse" || url.pathname === "/messages";
+    if (!isPublic && !checkRateLimit(req, res)) return;
+    if (!isPublic && !checkAuth(req, res)) return;
 
     try {
       if (req.method === "GET" && url.pathname === "/health") {

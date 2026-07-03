@@ -17,6 +17,9 @@ export function makeGetAllowedOrigin(corsOrigin: string | null): (req: http.Inco
     try {
       const { hostname } = new URL(origin);
       if (hostname === "localhost" || hostname === "127.0.0.1") return origin;
+      // Allow private network ranges (LAN access from HA dashboard)
+      if (/^10\./.test(hostname) || /^192\.168\./.test(hostname) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return origin;
     } catch { /* malformed origin */ }
     return null;
   };

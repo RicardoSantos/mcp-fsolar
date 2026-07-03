@@ -1,0 +1,4 @@
+* text=auto
+
+# Shell scripts must have LF in the container or the shebang breaks
+addon/mcp-fsolar/run.sh text eol=lf

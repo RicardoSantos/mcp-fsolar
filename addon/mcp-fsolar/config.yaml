@@ -1,0 +1,53 @@
+name: "mcp-fsolar"
+version: "1.0.34"
+slug: "mcp_fsolar"
+description: "Felicity Solar battery bridge — live BMS data as REST API and SSE stream"
+url: "https://github.com/RicardoSantos/mcp-fsolar"
+
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+
+startup: application
+boot: auto
+init: false
+
+image: "ghcr.io/ricardosantos/mcp-fsolar/{arch}"
+
+ports:
+  3010/tcp: 3010
+ports_description:
+  3010/tcp: "REST API + SSE events (used by ha-fsolar cards)"
+
+map:
+  - data
+
+options:
+  felicity_user: ""
+  felicity_pass: ""
+  port: 3010
+  poll_ms: 30000
+  api_key: ""
+  cors_origin: ""
+  rate_limit: 60
+  trust_proxy: false
+  low_soc_pct: 20
+  snapshot_ms: 600000
+  snapshot_days: 3
+  daily_days: 90
+
+schema:
+  felicity_user: str
+  felicity_pass: password
+  port: "int(1024,65535)"
+  poll_ms: "int(5000,300000)"
+  api_key: password?
+  cors_origin: str?
+  rate_limit: "int(0,10000)"
+  trust_proxy: bool
+  low_soc_pct: "int(1,99)"
+  snapshot_ms: "int(60000,3600000)"
+  snapshot_days: "int(1,30)"
+  daily_days: "int(7,365)"

@@ -1,5 +1,3 @@
-ARG BUILD_FROM
-
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /build
@@ -9,10 +7,10 @@ COPY server.ts index.ts ./
 RUN npm ci && npm run build && npm prune --production
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM $BUILD_FROM
+FROM node:20-alpine
 WORKDIR /app
 
-COPY --from=builder /build/dist        ./dist
+COPY --from=builder /build/dist         ./dist
 COPY --from=builder /build/node_modules ./node_modules
 COPY package.json ./
 COPY bin/ ./bin/

@@ -7,27 +7,11 @@ on:
 
 jobs:
   docker:
-    name: Build Docker image (${{ matrix.arch }})
+    name: Build & push multi-arch Docker image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            platform: linux/amd64
-            base: ghcr.io/home-assistant/amd64-base-nodejs:20
-          - arch: aarch64
-            platform: linux/arm64
-            base: ghcr.io/home-assistant/aarch64-base-nodejs:20
-          - arch: armv7
-            platform: linux/arm/v7
-            base: ghcr.io/home-assistant/armv7-base-nodejs:20
-          - arch: armhf
-            platform: linux/arm/v6
-            base: ghcr.io/home-assistant/armhf-base-nodejs:20
-
     steps:
       - uses: actions/checkout@v4
 
@@ -46,18 +30,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push (amd64 + arm64 + arm/v7 + arm/v6)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: addon/mcp-fsolar/Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
           push: true
-          build-args: |
-            BUILD_FROM=${{ matrix.base }}
           tags: |
-            ghcr.io/${{ steps.owner.outputs.name }}/mcp-fsolar/${{ matrix.arch }}:${{ github.ref_name }}
-            ghcr.io/${{ steps.owner.outputs.name }}/mcp-fsolar/${{ matrix.arch }}:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/mcp-fsolar:${{ github.ref_name }}
+            ghcr.io/${{ steps.owner.outputs.name }}/mcp-fsolar:latest
 
   github-release:
     name: Create GitHub release
@@ -83,11 +65,6 @@ jobs:
 
             Add `https://github.com/RicardoSantos/ha-fsolar` as a HACS custom repository (Frontend category).
 
-            ## Docker images (this release)
+            ## Docker image
 
-            | Architecture | Image |
-            |---|---|
-            | amd64 | `ghcr.io/ricardosantos/mcp-fsolar/amd64:${{ github.ref_name }}` |
-            | aarch64 | `ghcr.io/ricardosantos/mcp-fsolar/aarch64:${{ github.ref_name }}` |
-            | armv7 | `ghcr.io/ricardosantos/mcp-fsolar/armv7:${{ github.ref_name }}` |
-            | armhf | `ghcr.io/ricardosantos/mcp-fsolar/armhf:${{ github.ref_name }}` |
+            `ghcr.io/ricardosantos/mcp-fsolar:${{ github.ref_name }}` — multi-arch (amd64, arm64, arm/v7, arm/v6)

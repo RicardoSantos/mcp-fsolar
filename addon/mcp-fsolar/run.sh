@@ -1,40 +1,48 @@
-#!/usr/bin/with-contenv bashio
+#!/bin/sh
+# HA Supervisor writes add-on options to /data/options.json.
+# Read them with Node.js (always available in node:20-alpine) instead of bashio.
 
-# Required credentials
-export FELICITY_USER="$(bashio::config 'felicity_user')"
-export FELICITY_PASS="$(bashio::config 'felicity_pass')"
+OPTIONS=/data/options.json
 
-# Server
-export FELICITY_PORT="$(bashio::config 'port')"
+get_opt() {
+  node -e "
+    try {
+      const o = JSON.parse(require('fs').readFileSync('${OPTIONS}', 'utf8'));
+      const v = o['$1'];
+      if (v !== undefined && v !== null && v !== '') process.stdout.write(String(v));
+    } catch (_) {}
+  " 2>/dev/null
+}
+
+export FELICITY_USER="$(get_opt felicity_user)"
+export FELICITY_PASS="$(get_opt felicity_pass)"
+export FELICITY_PORT="$(get_opt port)"
 export FELICITY_MODE="http"
+export FELICITY_POLL_MS="$(get_opt poll_ms)"
 
-# Polling
-export FELICITY_POLL_MS="$(bashio::config 'poll_ms')"
-
-# Persistence — /data is mapped by HA Supervisor and survives restarts
+# /data is mapped by HA Supervisor and persists across restarts/updates
 export SNAPSHOT_DIR="/data"
-
-# Snapshots
 export FELICITY_SNAPSHOT_ENABLED="true"
-export FELICITY_SNAPSHOT_MS="$(bashio::config 'snapshot_ms')"
-export FELICITY_SNAPSHOT_DAYS="$(bashio::config 'snapshot_days')"
-export FELICITY_DAILY_DAYS="$(bashio::config 'daily_days')"
+export FELICITY_SNAPSHOT_MS="$(get_opt snapshot_ms)"
+export FELICITY_SNAPSHOT_DAYS="$(get_opt snapshot_days)"
+export FELICITY_DAILY_DAYS="$(get_opt daily_days)"
 
-# Security
-export FELICITY_RATE_LIMIT="$(bashio::config 'rate_limit')"
-export FELICITY_LOW_SOC_PCT="$(bashio::config 'low_soc_pct')"
+export FELICITY_RATE_LIMIT="$(get_opt rate_limit)"
+export FELICITY_LOW_SOC_PCT="$(get_opt low_soc_pct)"
 
-if bashio::config.true 'trust_proxy'; then
+if [ "$(get_opt trust_proxy)" = "true" ]; then
   export FELICITY_TRUST_PROXY="1"
 fi
 
-if bashio::config.has_value 'api_key'; then
-  export FELICITY_API_KEY="$(bashio::config 'api_key')"
+API_KEY="$(get_opt api_key)"
+if [ -n "$API_KEY" ]; then
+  export FELICITY_API_KEY="$API_KEY"
 fi
 
-if bashio::config.has_value 'cors_origin'; then
-  export FELICITY_CORS_ORIGIN="$(bashio::config 'cors_origin')"
+CORS="$(get_opt cors_origin)"
+if [ -n "$CORS" ]; then
+  export FELICITY_CORS_ORIGIN="$CORS"
 fi
 
-bashio::log.info "Starting mcp-fsolar on port ${FELICITY_PORT}"
+echo "[mcp-fsolar] Starting on port ${FELICITY_PORT:-3010}"
 exec node /app/bin/fsolar-mcp.js

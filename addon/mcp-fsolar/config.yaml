@@ -14,7 +14,7 @@ startup: application
 boot: auto
 init: false
 
-image: "ghcr.io/ricardosantos/mcp-fsolar/{arch}"
+image: "ghcr.io/ricardosantos/mcp-fsolar"
 
 ports:
   3010/tcp: 3010

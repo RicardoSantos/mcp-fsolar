@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  docker:
+    name: Build Docker image (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            base: ghcr.io/home-assistant/amd64-base-nodejs:20
+          - arch: aarch64
+            platform: linux/arm64
+            base: ghcr.io/home-assistant/aarch64-base-nodejs:20
+          - arch: armv7
+            platform: linux/arm/v7
+            base: ghcr.io/home-assistant/armv7-base-nodejs:20
+          - arch: armhf
+            platform: linux/arm/v6
+            base: ghcr.io/home-assistant/armhf-base-nodejs:20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: addon/mcp-fsolar/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            BUILD_FROM=${{ matrix.base }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/mcp-fsolar/${{ matrix.arch }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/mcp-fsolar/${{ matrix.arch }}:latest
+
+  github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Install via Home Assistant Add-on
+
+            1. In HA: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**
+            2. Add `https://github.com/RicardoSantos/mcp-fsolar`
+            3. Install **mcp-fsolar**, configure credentials, start
+
+            ## Install frontend cards (ha-fsolar)
+
+            Add `https://github.com/RicardoSantos/ha-fsolar` as a HACS custom repository (Frontend category).
+
+            ## Docker images (this release)
+
+            | Architecture | Image |
+            |---|---|
+            | amd64 | `ghcr.io/ricardosantos/mcp-fsolar/amd64:${{ github.ref_name }}` |
+            | aarch64 | `ghcr.io/ricardosantos/mcp-fsolar/aarch64:${{ github.ref_name }}` |
+            | armv7 | `ghcr.io/ricardosantos/mcp-fsolar/armv7:${{ github.ref_name }}` |
+            | armhf | `ghcr.io/ricardosantos/mcp-fsolar/armhf:${{ github.ref_name }}` |

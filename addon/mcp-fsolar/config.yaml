@@ -1,5 +1,5 @@
 name: "mcp-fsolar"
-version: "1.0.36"
+version: "1.0.37"
 slug: "mcp_fsolar"
 description: "Felicity Solar battery bridge — live BMS data as REST API and SSE stream"
 url: "https://github.com/RicardoSantos/mcp-fsolar"

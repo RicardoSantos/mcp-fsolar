@@ -312,14 +312,6 @@ export class HookStore {
       if (now - (cooldowns[key] ?? 0) > COOLDOWN_PRUNE_MS) delete cooldowns[key];
     }
 
-    interface FireEvent {
-      event:     string;
-      sn:        string;
-      alias:     string;
-      value:     number | null;
-      threshold: number | null;
-    }
-
     function _maybeQueue(events: FireEvent[], ev: FireEvent): void {
       const cooldownH = HOOK_COOLDOWNS_H[ev.event] ?? DEFAULT_HOOK_COOLDOWN_H;
       const key = `${ev.sn}:${ev.event}`;
@@ -423,6 +415,14 @@ export class HookStore {
       }
     }
   }
+}
+
+interface FireEvent {
+  event:     string;
+  sn:        string;
+  alias:     string;
+  value:     number | null;
+  threshold: number | null;
 }
 
 export const hookStore: HookStore = new HookStore();

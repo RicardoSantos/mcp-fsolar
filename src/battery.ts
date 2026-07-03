@@ -60,6 +60,16 @@ export interface Battery {
   isBalancing:          boolean;
 }
 
+export function groupCellsByModule(cellVoltages: number[]): Map<number, number[]> {
+  const moduleMap = new Map<number, number[]>();
+  cellVoltages.forEach((v, i) => {
+    const mod = Math.ceil((i + 1) / CELLS_PER_MODULE);
+    if (!moduleMap.has(mod)) moduleMap.set(mod, []);
+    moduleMap.get(mod)!.push(v);
+  });
+  return moduleMap;
+}
+
 export function buildBattery(device: Record<string, unknown>, snap: Record<string, unknown>): Battery {
   const cells = (Array.isArray(snap.bmsVoltageList) ? snap.bmsVoltageList : []).map(Number);
 

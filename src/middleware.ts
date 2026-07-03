@@ -99,6 +99,32 @@ export function makeRateLimit(
   return { checkRateLimit, stopPurge };
 }
 
+// ── Response helpers ──────────────────────────────────────────────────────────
+
+export function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
+  const body = JSON.stringify(data);
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(body);
+}
+
+export function sendError(res: http.ServerResponse, err: Error & { statusCode?: number }, payloadTooLargeMsg = "request body too large"): void {
+  if (res.headersSent) return;
+  const { HTTP_STATUS_PAYLOAD_TOO_LARGE: TOO_LARGE, HTTP_STATUS_INTERNAL_SERVER_ERROR: ISE } = constants;
+  const status  = err.statusCode ?? ISE;
+  const message = status === TOO_LARGE ? payloadTooLargeMsg : (err.message || "internal server error");
+  sendJson(res, status, { error: message });
+}
+
+export function makeRequestLogger(logger: { info(msg: string, meta?: Record<string, unknown>): void }): (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => void {
+  return function logRequest(req, res, next) {
+    const start = Date.now();
+    res.on("finish", () => {
+      logger.info("request", { method: req.method, path: req.url, status: res.statusCode, ms: Date.now() - start });
+    });
+    next();
+  };
+}
+
 // ── Body reader ───────────────────────────────────────────────────────────────
 
 export function readBody(req: http.IncomingMessage): Promise<string> {

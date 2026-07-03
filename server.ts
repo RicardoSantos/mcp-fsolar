@@ -11,21 +11,23 @@ import { z }                    from "zod";
 import { constants }            from "node:http2";
 
 import { FelicityClient }                       from "./src/client";
-import { CELLS_PER_MODULE }                     from "./src/battery";
+import { CELLS_PER_MODULE, groupCellsByModule }  from "./src/battery";
 import { MemoryCacheAdapter }                   from "./src/cache";
 import { snapshotStore as _defaultSnapshotStore,
          dailyEnergyStore as _defaultDailyEnergyStore } from "./src/store";
 import { hookStore     as _defaultHookStore     } from "./src/hooks";
 import { startPoller, snapshotEmitter, readState } from "./src/state";
 import { computeHealth, computeAutonomy }         from "./src/compute";
-import { computeAlerts, computeEnergyHistory,
+import { computeAlerts, computeEnergyHistory, mergeEnergyHistory,
          computeCellStats, computePowerStats }   from "./src/analyze";
 import { HealthStatus, TrendDirection }           from "./src/enums";
 import { createLogger, logger as _defaultLogger, type Logger } from "./src/logger";
 import { makeGetAllowedOrigin, makeCheckAuth,
-         makeRateLimit, readBody }               from "./src/middleware";
+         makeRateLimit, readBody,
+         sendJson, sendError }                   from "./src/middleware";
 import { AppError }                              from "./src/errors";
 import { LFP_NOMINAL_CYCLES }                   from "./src/constants";
+import { findBattery, filterBatteries }          from "./src/helpers";
 import type { BatterySnapshotStore, DailyEnergyStore } from "./src/store";
 import type { HookStore }                              from "./src/hooks";
 
@@ -77,12 +79,12 @@ function loadEnv(): void {
 }
 loadEnv();
 
-// ── Module-level helpers ──────────────────────────────────────────────────────
+// ── Module-level constants ────────────────────────────────────────────────────
 
 const _SNAPSHOT_MAP: Record<string, string> = {
   intraday: "battery-snapshots.json",
   daily:    "battery-daily.json",
-  state:    "battery-state.json",
+  state:    "felicity-state.json",
 };
 
 function _snapshotFile(store: string): string | null {
@@ -92,20 +94,6 @@ function _snapshotFile(store: string): string | null {
 
 const textContent = (text: string): { content: Array<{ type: "text"; text: string }> } =>
   ({ content: [{ type: "text", text }] });
-
-function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
-
-function sendError(res: http.ServerResponse, err: Error & { statusCode?: number }): void {
-  if (res.headersSent) return;
-  const status  = err.statusCode ?? HTTP_STATUS_INTERNAL_SERVER_ERROR;
-  const message = status === HTTP_STATUS_PAYLOAD_TOO_LARGE
-    ? "request body too large"
-    : (err.message || "internal server error");
-  sendJson(res, status, { error: message });
-}
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -144,6 +132,10 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
   } = opts;
 
   let pollError: string | null = null;
+
+  function getFleetHealth(batteries: import("./src/battery").Battery[]) {
+    return computeHealth(batteries, serverSnapshotStore.getSnapshots());
+  }
 
   function setPollError(errOrMsg: Error | string | null): void {
     pollError = errOrMsg
@@ -239,7 +231,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
         d === TrendDirection.IMPROVING ? "↓" : d === TrendDirection.DEGRADING ? "↑" : "→";
       let entries: Array<[string, (typeof trend)[string]]>;
       if (id) {
-        const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);
+        const bat = findBattery(batteries, id);
         if (!bat) return textContent(`Battery '${id}' not found.`);
         const t = trend[bat.sn];
         entries = t ? [[bat.alias, t]] : [];
@@ -276,11 +268,8 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
     async ({ id }) => {
       const { batteries, fetchedAt, fromCache } = await client.getBatteries();
-      const snapshots = serverSnapshotStore.getSnapshots();
-      const health    = computeHealth(batteries, snapshots);
-      const targets   = id
-        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
-        : batteries;
+      const health    = getFleetHealth(batteries);
+      const targets   = filterBatteries(batteries, id);
       if (!targets.length) return textContent(`Battery '${id}' not found.`);
       const label = (s: string | null): string =>
         s === HealthStatus.CRIT ? "CRIT" : s === HealthStatus.WARN ? "WARN" : s === HealthStatus.OK ? "OK" : "N/A";
@@ -337,13 +326,9 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const snapshots  = serverSnapshotStore.getSnapshots();
-      const health     = computeHealth(batteries, snapshots);
-      const targets    = id
-        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
-        : batteries;
+      const targets    = filterBatteries(batteries, id);
       if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
-      const alerts = computeAlerts(targets, health);
+      const alerts = computeAlerts(targets, getFleetHealth(batteries));
       if (!alerts.length) return textContent("No active alerts.");
       return textContent(alerts.map((a) => `[${a.severity.toUpperCase()}] ${a.battery}  ${a.code}: ${a.message}`).join("\n"));
     }
@@ -354,10 +339,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     "Daily charge/discharge energy totals (kWh) — up to 90 days from persistent store, merged with live intraday data. Shows peak rates and net balance.",
     {},
     async () => {
-      const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
-      const persisted = serverDailyEnergyStore.get();
-      const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
-      const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+      const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
       if (!history.length) return textContent("Not enough snapshots for energy history (need at least 2 readings ~10 min apart).");
       const lines = history.map((d) =>
         `${d.date}  ↑${d.kwhCharged} kWh  ↓${d.kwhDischarged} kWh  net ${d.kwhNet >= 0 ? "+" : ""}${d.kwhNet} kWh` +
@@ -373,10 +355,9 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().describe("Alias (Bat1/Bat2/Bat3) or serial number") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);
+      const bat = findBattery(batteries, id);
       if (!bat) return textContent(`Battery '${id}' not found.`);
-      const snapshots = serverSnapshotStore.getSnapshots();
-      const stats     = computeCellStats(snapshots, bat.sn);
+      const stats = computeCellStats(serverSnapshotStore.getSnapshots(), bat.sn);
       if (!stats.length) return textContent("Not enough snapshots for cell statistics (need at least 2 readings).");
       const lines = stats.map((c) =>
         `Cell ${String(c.cell).padStart(2, "0")} (M${c.module})  mean ${c.mean} mV  σ ${c.stddev}  ` +
@@ -392,18 +373,12 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().describe("Alias (Bat1/Bat2/Bat3) or serial number") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const bat = batteries.find((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id);
+      const bat = findBattery(batteries, id);
       if (!bat) return textContent(`Battery '${id}' not found.`);
-      const snapshots  = serverSnapshotStore.getSnapshots();
-      const health     = computeHealth(batteries, snapshots);
+      const health     = getFleetHealth(batteries);
       const h          = health[bat.sn];
       const outlierSet = new Set(h?.outliers ?? []);
-      const moduleMap  = new Map<number, number[]>();
-      bat.cellVoltages.forEach((v, i) => {
-        const mod = Math.ceil((i + 1) / CELLS_PER_MODULE);
-        if (!moduleMap.has(mod)) moduleMap.set(mod, []);
-        moduleMap.get(mod)!.push(v);
-      });
+      const moduleMap  = groupCellsByModule(bat.cellVoltages);
       const lines = [...moduleMap.entries()].map(([mod, vs]) => {
         const min   = Math.min(...vs);
         const max   = Math.max(...vs);
@@ -422,9 +397,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const targets = id
-        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
-        : batteries;
+      const targets = filterBatteries(batteries, id);
       if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
       const lines = targets.map((bat) => {
         const cvRoom  = bat.chargeVoltLimit    != null ? (bat.chargeVoltLimit    - bat.voltage).toFixed(1) : "N/A";
@@ -447,9 +420,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const targets = id
-        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
-        : batteries;
+      const targets = filterBatteries(batteries, id);
       if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
       const lines = targets.map((bat) => {
         const cycles    = bat.batCycleIndex ?? 0;
@@ -472,9 +443,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     { id: z.string().optional().describe("Alias (Bat1/Bat2/Bat3) or serial number; omit for all batteries") },
     async ({ id }) => {
       const { batteries } = await client.getBatteries();
-      const targets = id
-        ? batteries.filter((b) => b.alias.toLowerCase() === id.toLowerCase() || b.sn === id)
-        : batteries;
+      const targets = filterBatteries(batteries, id);
       if (id && !targets.length) return textContent(`Battery '${id}' not found.`);
       const lines = targets.map((bat) => {
         if (bat.soc < 5 || bat.soc > 95)
@@ -518,11 +487,8 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     "Estimated monetary savings from discharged energy × electricity tariff. Pass tariffKwh or set FELICITY_TARIFF_KWH env var.",
     { tariffKwh: z.number().optional().describe("Electricity tariff in currency-per-kWh (e.g. 0.25 for €0.25/kWh)") },
     async ({ tariffKwh }) => {
-      const rate      = tariffKwh ?? (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
-      const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
-      const persisted = serverDailyEnergyStore.get();
-      const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
-      const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+      const rate    = tariffKwh ?? (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
+      const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
       if (!history.length) return textContent("Not enough snapshots for cost savings calculation (need at least 2 readings).");
       const totalDischarged = history.reduce((s, d) => s + d.kwhDischarged, 0);
       const totalCharged    = history.reduce((s, d) => s + d.kwhCharged,    0);
@@ -589,7 +555,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
 
         if (bsub === "cell-stats") {
           const { batteries } = await client.getBatteries();
-          const bat = batteries.find((b) => b.alias.toLowerCase() === bid.toLowerCase() || b.sn === bid);
+          const bat = findBattery(batteries, bid);
           if (!bat) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
           sendJson(res, HTTP_STATUS_OK, { battery: bat.alias, sn: bat.sn, stats: computeCellStats(serverSnapshotStore.getSnapshots(), bat.sn) });
           return;
@@ -597,16 +563,10 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
 
         if (bsub === "module-health") {
           const { batteries } = await client.getBatteries();
-          const bat = batteries.find((b) => b.alias.toLowerCase() === bid.toLowerCase() || b.sn === bid);
+          const bat = findBattery(batteries, bid);
           if (!bat) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
-          const health    = computeHealth(batteries, serverSnapshotStore.getSnapshots());
-          const outliers  = new Set(health[bat.sn]?.outliers ?? []);
-          const moduleMap = new Map<number, number[]>();
-          bat.cellVoltages.forEach((v, i) => {
-            const m = Math.ceil((i + 1) / CELLS_PER_MODULE);
-            if (!moduleMap.has(m)) moduleMap.set(m, []);
-            moduleMap.get(m)!.push(v);
-          });
+          const outliers  = new Set(getFleetHealth(batteries)[bat.sn]?.outliers ?? []);
+          const moduleMap = groupCellsByModule(bat.cellVoltages);
           const modules = [...moduleMap.entries()].map(([mod, vs]) => ({
             module:     mod,
             min:        Math.min(...vs),
@@ -692,20 +652,15 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       if (req.method === "GET" && url.pathname === "/alerts") {
         const qid = url.searchParams.get("id") ?? undefined;
         const { batteries } = await client.getBatteries();
-        const targets = qid
-          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
-          : batteries;
+        const targets = filterBatteries(batteries, qid);
         if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
-        const alerts = computeAlerts(targets, computeHealth(batteries, serverSnapshotStore.getSnapshots()));
+        const alerts = computeAlerts(targets, getFleetHealth(batteries));
         sendJson(res, HTTP_STATUS_OK, { alerts, count: alerts.length });
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/energy") {
-        const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
-        const persisted = serverDailyEnergyStore.get();
-        const merged    = new Map([...persisted, ...live].map((e) => [e.date, e]));
-        const history   = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+        const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
         sendJson(res, HTTP_STATUS_OK, { history });
         return;
       }
@@ -713,9 +668,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       if (req.method === "GET" && url.pathname === "/limit-headroom") {
         const qid = url.searchParams.get("id") ?? undefined;
         const { batteries } = await client.getBatteries();
-        const targets = qid
-          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
-          : batteries;
+        const targets = filterBatteries(batteries, qid);
         if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
         sendJson(res, HTTP_STATUS_OK, {
           batteries: targets.map((bat) => ({
@@ -735,9 +688,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       if (req.method === "GET" && url.pathname === "/lifetime-stats") {
         const qid = url.searchParams.get("id") ?? undefined;
         const { batteries } = await client.getBatteries();
-        const targets = qid
-          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
-          : batteries;
+        const targets = filterBatteries(batteries, qid);
         if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
         sendJson(res, HTTP_STATUS_OK, {
           batteries: targets.map((bat) => {
@@ -761,9 +712,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
       if (req.method === "GET" && url.pathname === "/capacity") {
         const qid = url.searchParams.get("id") ?? undefined;
         const { batteries } = await client.getBatteries();
-        const targets = qid
-          ? batteries.filter((b) => b.alias.toLowerCase() === qid.toLowerCase() || b.sn === qid)
-          : batteries;
+        const targets = filterBatteries(batteries, qid);
         if (qid && !targets.length) { sendJson(res, HTTP_STATUS_NOT_FOUND, { error: "not found" }); return; }
         sendJson(res, HTTP_STATUS_OK, {
           batteries: targets.map((bat) => {
@@ -797,10 +746,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
         const rate = tariffParam != null
           ? parseFloat(tariffParam)
           : (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
-        const live      = computeEnergyHistory(serverSnapshotStore.getSnapshots());
-        const persisted = serverDailyEnergyStore.get();
-        const merged2   = new Map([...persisted, ...live].map((e) => [e.date, e]));
-        const history   = [...merged2.values()].sort((a, b) => a.date.localeCompare(b.date));
+        const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
         const totalDischarged = Math.round(history.reduce((s, d) => s + d.kwhDischarged, 0) * 100) / 100;
         const totalCharged    = Math.round(history.reduce((s, d) => s + d.kwhCharged,    0) * 100) / 100;
         sendJson(res, HTTP_STATUS_OK, {

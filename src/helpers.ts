@@ -76,6 +76,23 @@ export function pickSnapshotFields(b: BatteryLike): SnapshotEntry {
   };
 }
 
+export function findBattery<T extends { sn: string; alias: string }>(
+  batteries: T[],
+  id: string
+): T | undefined {
+  const lower = id.toLowerCase();
+  return batteries.find((b) => b.alias.toLowerCase() === lower || b.sn === id);
+}
+
+export function filterBatteries<T extends { sn: string; alias: string }>(
+  batteries: T[],
+  id?: string
+): T[] {
+  if (!id) return batteries;
+  const lower = id.toLowerCase();
+  return batteries.filter((b) => b.alias.toLowerCase() === lower || b.sn === id);
+}
+
 export function pickNextSunrise(
   sunrise:         string | null | undefined,
   sunriseTomorrow: string | null | undefined,

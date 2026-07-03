@@ -1,7 +1,8 @@
 import { TrendDirection }                                          from "./enums";
 import { HEALTH_CELL_DELTA_CRIT, HEALTH_CELL_DELTA_WARN,
          HEALTH_TEMP_CRIT, HEALTH_TEMP_WARN, HEALTH_SOH_WARN,
-         ALERT_STALE_MIN }                                        from "./constants";
+         ALERT_STALE_MIN,
+         MAX_SNAPSHOT_GAP_H, CELL_TREND_STABLE_MV, POWER_IDLE_KW } from "./constants";
 import { CELLS_PER_MODULE }                                       from "./battery";
 import type { BatterySnapshot }                                from "./store";
 import type { Battery }                                        from "./battery";
@@ -98,8 +99,6 @@ export interface EnergyDay {
   snapshotCount:   number;
 }
 
-const MAX_SNAPSHOT_GAP_H = 2;
-
 export function computeEnergyHistory(snapshots: BatterySnapshot[]): EnergyDay[] {
   if (snapshots.length < 2) return [];
 
@@ -144,6 +143,11 @@ export function computeEnergyHistory(snapshots: BatterySnapshot[]): EnergyDay[] 
     }));
 }
 
+export function mergeEnergyHistory(persisted: EnergyDay[], live: EnergyDay[]): EnergyDay[] {
+  return [...new Map([...persisted, ...live].map((e) => [e.date, e])).values()]
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ── Cell stats ────────────────────────────────────────────────────────────────
 
 export interface CellStat {
@@ -156,8 +160,6 @@ export interface CellStat {
   meanDeviation: number;
   trend:         TrendDirection;
 }
-
-const CELL_TREND_STABLE_MV = 2;
 
 export function computeCellStats(snapshots: BatterySnapshot[], sn: string): CellStat[] {
   const batSnaps = snapshots
@@ -220,8 +222,6 @@ export interface PowerStats {
   chargeSamples:    number;
   dischargeSamples: number;
 }
-
-const POWER_IDLE_KW = 0.05;
 
 export function computePowerStats(snapshots: BatterySnapshot[], batteries: Battery[]): PowerStats {
   const ratedKwh = batteries.reduce((s, b) => s + (b.ratedEnergyKwh ?? 0), 0);

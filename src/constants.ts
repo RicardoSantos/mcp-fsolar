@@ -42,3 +42,22 @@ export const ALERT_STALE_MIN = 30; // minutes — last BMS report older than thi
 // ── Battery lifecycle ─────────────────────────────────────────────────────────
 
 export const LFP_NOMINAL_CYCLES = 4000; // rated full-cycle count for LFP chemistry
+
+// ── Snapshot store tuning ─────────────────────────────────────────────────────
+
+export const TREND_STABLE_MV        = 3;             // mV — cell-delta change smaller than this is "stable"
+export const SNAPSHOT_MS_DEFAULT    = 10 * 60_000;   // ms — default intraday snapshot interval
+export const SNAPSHOT_MS_MIN        = 60_000;         // ms — minimum allowed interval
+export const SNAPSHOT_MS_MAX        = 60 * 60_000;   // ms — maximum allowed interval
+export const SNAPSHOT_DAYS_DEFAULT  = 3;             // days of intraday snapshots to keep
+export const SNAPSHOT_DAYS_MIN      = 1;
+export const SNAPSHOT_DAYS_MAX      = 30;
+export const DAILY_DAYS_DEFAULT     = 90;            // days of daily energy records to keep
+export const DAILY_DAYS_MIN         = 7;
+export const DAILY_DAYS_MAX         = 365;
+
+// ── Analysis tuning ───────────────────────────────────────────────────────────
+
+export const MAX_SNAPSHOT_GAP_H    = 2;    // h    — gaps larger than this are skipped in energy history
+export const CELL_TREND_STABLE_MV  = 2;    // mV   — per-cell deviation change below this is "stable"
+export const POWER_IDLE_KW         = 0.05; // kW   — power below this threshold is treated as idle

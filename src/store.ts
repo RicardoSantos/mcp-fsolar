@@ -4,21 +4,11 @@ import path from "path";
 import { clamp, pickSnapshotFields, type SnapshotEntry } from "./helpers";
 import { TrendDirection }                                 from "./enums";
 import { logger }                                         from "./logger";
+import { TREND_STABLE_MV,
+         SNAPSHOT_MS_DEFAULT, SNAPSHOT_MS_MIN, SNAPSHOT_MS_MAX,
+         SNAPSHOT_DAYS_DEFAULT, SNAPSHOT_DAYS_MIN, SNAPSHOT_DAYS_MAX,
+         DAILY_DAYS_DEFAULT, DAILY_DAYS_MIN, DAILY_DAYS_MAX }   from "./constants";
 import type { Battery }                                   from "./battery";
-
-const TREND_STABLE_MV = 3;
-
-// ── Snapshot config ───────────────────────────────────────────────────────────
-
-const SNAPSHOT_MS_DEFAULT   = 10 * 60 * 1000;
-const SNAPSHOT_MS_MIN       = 60 * 1000;
-const SNAPSHOT_MS_MAX       = 60 * 60 * 1000;
-const SNAPSHOT_DAYS_DEFAULT = 3;
-const SNAPSHOT_DAYS_MIN     = 1;
-const SNAPSHOT_DAYS_MAX     = 30;
-const DAILY_DAYS_DEFAULT    = 90;
-const DAILY_DAYS_MIN        = 7;
-const DAILY_DAYS_MAX        = 365;
 
 export interface BatterySnapshot {
   ts:        string;

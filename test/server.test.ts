@@ -34,7 +34,7 @@ function req(
   headers: Record<string, string> = {},
 ): Promise<ReqResult> {
   return new Promise((resolve, reject) => {
-    const r = http.request({ hostname: "localhost", port, path, method, headers }, (res) => {
+    const r = http.request({ hostname: "127.0.0.1", port, path, method, headers }, (res) => {
       let data = "";
       res.on("data", (c: Buffer) => (data += c));
       res.on("end", () => {

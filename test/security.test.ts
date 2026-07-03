@@ -67,7 +67,7 @@ function req(
 
     const r = http.request(
       {
-        hostname: "localhost", port: PORT, path, method,
+        hostname: "127.0.0.1", port: PORT, path, method,
         headers: {
           ...(payload ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } : {}),
           ...headers,
@@ -141,7 +141,7 @@ describe("authentication", () => {
 
   it("/sse endpoint does not require auth key", async () => {
     const r = await new Promise<{ status: number }>((resolve) => {
-      const req2 = http.request({ hostname: "localhost", port: PORT, path: "/sse", method: "GET" }, (res) => {
+      const req2 = http.request({ hostname: "127.0.0.1", port: PORT, path: "/sse", method: "GET" }, (res) => {
         res.destroy();
         resolve({ status: res.statusCode ?? 0 });
       });

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import dns    from "dns/promises";
 import fs     from "fs";
 import https  from "https";
 import http   from "http";
@@ -120,6 +121,8 @@ export class HookStore {
   private _cooldowns:     Record<string, number>;
   private _deliveryLog:   Map<string, HookDelivery[]>   = new Map();
   private _retryQueue:    RetryEntry[];
+  // Injectable for testing
+  _dnsLookup: (hostname: string) => Promise<{ address: string; family: number }> = dns.lookup;
 
   constructor() {
     this._hooks      = this._loadFromDisk();
@@ -208,6 +211,9 @@ export class HookStore {
     if (_isPrivateHost(parsed.hostname)) {
       throw new AppError("webhook url must not target a private address", HTTP_STATUS_BAD_REQUEST);
     }
+    if (parsed.protocol === "http:") {
+      logger.warn("webhook registered without TLS — payload will be sent in plaintext", { url });
+    }
     if (events?.length) {
       const unknown = events.filter((e) => !VALID_EVENTS.has(e));
       if (unknown.length) {
@@ -266,6 +272,25 @@ export class HookStore {
   }
 
   private async _deliver(hook: StoredHook, event: string, payload: Record<string, unknown>): Promise<boolean> {
+    // DNS rebinding guard: re-resolve at delivery time so a domain cannot be registered pointing
+    // to a public IP, then DNS-switched to a private host after registration.
+    const hookUrl = new URL(hook.url);
+    const isIpLiteral = /^\d{1,3}(\.\d{1,3}){3}$/.test(hookUrl.hostname) || hookUrl.hostname.startsWith("[");
+    if (!isIpLiteral) {
+      try {
+        const { address } = await this._dnsLookup(hookUrl.hostname);
+        if (_isPrivateHost(address)) {
+          logger.warn("webhook delivery blocked: hostname resolved to private address", { url: hook.url, resolved: address });
+          this._logDelivery(hook.id, { event, url: hook.url, ok: false, status: 0, attempts: 0, ts: new Date().toISOString() });
+          return false;
+        }
+      } catch {
+        logger.warn("webhook delivery blocked: DNS lookup failed", { url: hook.url });
+        this._logDelivery(hook.id, { event, url: hook.url, ok: false, status: 0, attempts: 0, ts: new Date().toISOString() });
+        return false;
+      }
+    }
+
     const body    = JSON.stringify({ event, ...payload, ts: new Date().toISOString() });
     const headers: Record<string, string | number> = {
       "Content-Type":   "application/json",

@@ -43,6 +43,10 @@ export const ALERT_STALE_MIN = 30; // minutes — last BMS report older than thi
 
 export const LFP_NOMINAL_CYCLES = 4000; // rated full-cycle count for LFP chemistry
 
+// ── Poller backoff ────────────────────────────────────────────────────────────
+
+export const POLL_BACKOFF_MAX_MS = 10 * 60_000; // ms — ceiling for exponential backoff on upstream failures
+
 // ── Snapshot store tuning ─────────────────────────────────────────────────────
 
 export const TREND_STABLE_MV        = 3;             // mV — cell-delta change smaller than this is "stable"

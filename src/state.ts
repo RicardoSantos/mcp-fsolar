@@ -7,6 +7,7 @@ import { snapshotStore as _defaultSnapshotStore,
 import { hookStore     as _defaultHookStore     }      from "./hooks";
 import { computeHealth, computeAutonomy }              from "./compute";
 import { computeEnergyHistory }                        from "./analyze";
+import { POLL_BACKOFF_MAX_MS }                         from "./constants";
 import { logger }                                      from "./logger";
 import type { FelicityClient }                         from "./client";
 import type { BatterySnapshotStore, DailyEnergyStore, DailyEnergy } from "./store";
@@ -73,7 +74,9 @@ export function startPoller(
   const hookStore       = opts.hookStore       ?? _defaultHookStore;
   const onTick          = opts.onTick;
 
-  let _tickRunning   = false;
+  let _tickRunning       = false;
+  let _consecutiveErrors = 0;
+  let _backoffUntil      = 0;
   let _lastBatteries: Battery[] | null                    = null;
   let _lastHealth:    Record<string, BatteryHealth> | null = null;
 
@@ -85,13 +88,16 @@ export function startPoller(
 
   async function tick(): Promise<void> {
     if (_tickRunning) return;
+    if (Date.now() < _backoffUntil) return;
     _tickRunning = true;
     try {
       const { batteries } = await client.getBatteries();
       const snapshots = snapshotStore.getSnapshots();
       const health    = computeHealth(batteries, snapshots);
-      _lastBatteries  = batteries;
-      _lastHealth     = health;
+      _lastBatteries     = batteries;
+      _lastHealth        = health;
+      _consecutiveErrors = 0;
+      _backoffUntil      = 0;
       _writeState(batteries, snapshots, health, snapshotStore);
       dailyEnergyStore.update(computeEnergyHistory(snapshots) as DailyEnergy[]);
       // Emit every tick so SSE /events clients get 30 s updates
@@ -100,8 +106,11 @@ export function startPoller(
       await hookStore.retryFailed();
       onTick?.(null, batteries);
     } catch (err: unknown) {
+      _consecutiveErrors++;
+      const delayMs = Math.min(POLL_BACKOFF_MAX_MS, POLL_MS * Math.pow(2, _consecutiveErrors - 1));
+      _backoffUntil = Date.now() + delayMs;
       onTick?.(err as Error);
-      logger.error("tick error", { err: (err as Error).message });
+      logger.error("tick error", { err: (err as Error).message, consecutiveErrors: _consecutiveErrors, backoffMs: delayMs });
     } finally {
       _tickRunning = false;
     }

@@ -24,6 +24,7 @@ interface HookStorePrivate {
   _deliveryLog:   Map<string, HookDelivery[]>;
   _deliver:       (hook: Record<string, unknown>, event: string, payload: Record<string, unknown>) => Promise<boolean>;
   _httpPost:      (url: string, body: string, headers: Record<string, string | number>) => Promise<{ ok: boolean; status: number }>;
+  _dnsLookup:     (hostname: string) => Promise<{ address: string; family: number }>;
 }
 
 function priv(hs: HookStore): HookStorePrivate {
@@ -170,6 +171,69 @@ test("add — accepts a subset of valid events", () => {
     url:    "https://example.com/hook",
     events: [HookEvent.LOW_SOC, HookEvent.FULL],
   }));
+});
+
+// ── DNS rebinding protection ──────────────────────────────────────────────────
+
+test("deliver — blocks when hostname resolves to private IP (DNS rebinding)", async () => {
+  const hs = new HookStore();
+  priv(hs)._save          = () => {};
+  priv(hs)._saveCooldowns = () => {};
+  priv(hs)._hooks         = [];
+  priv(hs)._cooldowns     = {};
+
+  // Bypass registration SSRF check by injecting the hook directly
+  const hook = { id: "x", url: "https://rebind.example.com/hook", events: [], secret: null, createdAt: new Date().toISOString() };
+  priv(hs)._hooks = [hook as unknown as Record<string, unknown>];
+
+  // Stub DNS lookup to return a private IP (simulates DNS rebinding)
+  priv(hs)._dnsLookup = async () => ({ address: "192.168.1.100", family: 4 });
+
+  // Stub _httpPost to confirm it is never reached
+  let httpPostCalled = false;
+  priv(hs)._httpPost = async () => { httpPostCalled = true; return { ok: true, status: 200 }; };
+
+  const ok = await priv(hs)._deliver(hook as unknown as Record<string, unknown>, "test_event", {});
+  assert.equal(ok, false, "deliver must return false when DNS resolves to private IP");
+  assert.equal(httpPostCalled, false, "_httpPost must not be called for DNS-rebound address");
+});
+
+test("deliver — blocks when DNS lookup fails", async () => {
+  const hs = new HookStore();
+  priv(hs)._save          = () => {};
+  priv(hs)._saveCooldowns = () => {};
+  priv(hs)._hooks         = [];
+  priv(hs)._cooldowns     = {};
+
+  const hook = { id: "y", url: "https://unresolvable.example.com/hook", events: [], secret: null, createdAt: new Date().toISOString() };
+  priv(hs)._hooks = [hook as unknown as Record<string, unknown>];
+
+  priv(hs)._dnsLookup = async () => { throw new Error("ENOTFOUND"); };
+
+  let httpPostCalled = false;
+  priv(hs)._httpPost = async () => { httpPostCalled = true; return { ok: true, status: 200 }; };
+
+  const ok = await priv(hs)._deliver(hook as unknown as Record<string, unknown>, "test_event", {});
+  assert.equal(ok, false, "deliver must return false when DNS lookup fails");
+  assert.equal(httpPostCalled, false, "_httpPost must not be called when DNS lookup fails");
+});
+
+test("deliver — proceeds when hostname resolves to public IP", async () => {
+  const hs = new HookStore();
+  priv(hs)._save          = () => {};
+  priv(hs)._saveCooldowns = () => {};
+  priv(hs)._hooks         = [];
+  priv(hs)._cooldowns     = {};
+
+  const hook = { id: "z", url: "https://webhook.example.com/hook", events: [], secret: null, createdAt: new Date().toISOString() };
+  priv(hs)._hooks = [hook as unknown as Record<string, unknown>];
+
+  // Resolves to a public IP — should proceed to delivery
+  priv(hs)._dnsLookup = async () => ({ address: "93.184.216.34", family: 4 });
+  priv(hs)._httpPost  = async () => ({ ok: true, status: 200 });
+
+  const ok = await priv(hs)._deliver(hook as unknown as Record<string, unknown>, "test_event", {});
+  assert.equal(ok, true, "deliver must proceed for public IPs");
 });
 
 // ── HookStore.remove ──────────────────────────────────────────────────────────

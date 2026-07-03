@@ -61,9 +61,9 @@ jobs:
             2. Add `https://github.com/RicardoSantos/mcp-fsolar`
             3. Install **mcp-fsolar**, configure credentials, start
 
-            ## Install frontend cards (ha-fsolar)
+            ## Install dashboard cards (ha-fsolar)
 
-            Add `https://github.com/RicardoSantos/ha-fsolar` as a HACS custom repository (Frontend category).
+            Add `https://github.com/RicardoSantos/ha-fsolar` as a HACS custom repository (Dashboard category).
 
             ## Docker image
 

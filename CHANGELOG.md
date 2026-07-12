@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.41] — 2026-07-12
+
+### Fixed
+- `DailySnapshotStore.maybeAdd` now records the **daily min and max** from the previous calendar day's intraday snapshots instead of a single arbitrary reading. Two real snapshots are stored per day — the one with the lowest total pack voltage and the one with the highest — enabling range bar charts in the dashboard to show meaningful daily spreads.
+- Daily aggregate check is now **date-based and idempotent** (`ts.startsWith(yesterday)`) instead of elapsed-time-based, preventing duplicate writes after process restarts.
+- `client.getBatteries()` passes `snapshotStore.getSnapshots()` to `dailySnapshotStore.maybeAdd` so the daily store has the intraday data to aggregate.
+
+### Changed
+- `SNAPSHOT_DAYS_DEFAULT` raised from **3 → 15 days** so the intraday store always has enough history for the daily aggregation to look back into the previous day.
+- `DailySnapshotStore` capacity bumped to `ddays * 2` to hold two entries per day (min + max).
+- Synthetic daily entry timestamps are pinned to `T11:59:59Z` (min) and `T12:00:01Z` (max) — noon UTC — so both entries always map to the same local calendar date in any timezone.
+
+### Added
+- `test/daily-store.test.ts` — 10 tests covering `DailySnapshotStore.maybeAdd`: idempotence, min/max selection, timestamp format, today-vs-yesterday filtering, fallback behaviour, capacity trimming, and extremes with 3+ snapshots.
+
 ## [1.0.30] — 2026-07-02
 
 ### Added

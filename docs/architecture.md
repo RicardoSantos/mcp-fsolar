@@ -17,7 +17,7 @@
 | `src/cache.ts` | `MemoryCacheAdapter` implementing `CacheAdapter` interface |
 | `src/compute.ts` | `computeHealth`, `computeAutonomy` — pure math over batteries + snapshots |
 | `src/analyze.ts` | `computeAlerts`, `computeEnergyHistory`, `computeCellStats`, `computePowerStats` |
-| `src/store.ts` | `SnapshotStore`, `DailyEnergyStore` — intraday + daily persistence |
+| `src/store.ts` | `BatterySnapshotStore`, `DailySnapshotStore`, `DailyEnergyStore` — intraday, daily min/max, and energy persistence |
 | `src/state.ts` | `startPoller`, `readState`, `snapshotEmitter` — poll loop and materialized state |
 | `src/hooks.ts` | `HookStore` — webhook delivery, SSRF guard, cooldowns, retry queue, HMAC signing |
 | `src/middleware.ts` | `makeCheckAuth`, `makeRateLimit`, `makeGetAllowedOrigin`, `readBody` |
@@ -45,13 +45,14 @@ Mode is auto-detected via `!process.stdin.isTTY`, or set explicitly with `FELICI
 3. createServer(client, opts)   — wires middleware, MCP tools, HTTP routes
 4. startPoller(client, opts)    — starts 30s poll loop; fires first tick immediately
    4a. client.getBatteries()    — RSA-encrypted login + token refresh if needed
-   4b. snapshotStore.maybeAdd() — writes intraday snapshot if interval elapsed
-   4c. computeHealth()          — per-battery health from snapshots
-   4d. computeAutonomy()        — fleet autonomy estimate
-   4e. hookStore.fire()         — fires events, SSRF-safe delivery, retry queue
-   4f. hookStore.retryFailed()  — drains dead-letter retry queue
-   4g. writeState()             — persists materialized state to felicity-state.json
-   4h. snapshotEmitter.emit()   — notifies SSE /events subscribers (30s cadence)
+   4b. snapshotStore.maybeAdd()      — writes intraday snapshot if interval elapsed (default 10 min)
+   4c. dailySnapshotStore.maybeAdd() — if yesterday not yet stored, writes min+max snapshots for previous day
+   4d. computeHealth()               — per-battery health from snapshots
+   4e. computeAutonomy()             — fleet autonomy estimate
+   4f. hookStore.fire()              — fires events, SSRF-safe delivery, retry queue
+   4g. hookStore.retryFailed()       — drains dead-letter retry queue
+   4h. writeState()                  — persists materialized state to felicity-state.json
+   4i. snapshotEmitter.emit()        — notifies SSE /events subscribers (30s cadence)
 5. httpServer.listen(PORT)      — HTTP server starts accepting connections
 ```
 
@@ -71,8 +72,9 @@ Felicity Cloud API
    ┌────┴──────────────────────────────────────────────────────────┐
    │                     startPoller() — 30s tick                  │
    ├───────────────────────────────────────────────────────────────┤
-   │  SnapshotStore.maybeAdd()     (10min intraday, 3-day rolling) │
-   │  DailyEnergyStore.update()    (90-day daily accumulator)      │
+   │  BatterySnapshotStore.maybeAdd()  (10min intraday, 15-day)    │
+   │  DailySnapshotStore.maybeAdd()    (min+max per day, 90-day)   │
+   │  DailyEnergyStore.update()        (90-day energy accumulator) │
    │  computeHealth(bats, snaps)   → BatteryHealth per battery     │
    │  computeAutonomy(bats, snaps) → AutonomyResult (fleet)        │
    │  hookStore.fire(bats, health) → webhook delivery              │
@@ -95,7 +97,8 @@ All files live in `SNAPSHOT_DIR` (default `os.tmpdir()`). Written atomically (`.
 |---|---|---|
 | `battery-state.json` | Latest materialized state (batteries, health, autonomy) | Overwritten each tick |
 | `felicity-state.json` | Same as above (legacy name) | Overwritten each tick |
-| `battery-snapshots.json` | Intraday battery snapshots | Rolling 3 days (`FELICITY_SNAPSHOT_DAYS`) |
+| `battery-snapshots.json` | Intraday battery snapshots | Rolling 15 days (`FELICITY_SNAPSHOT_DAYS`) |
+| `battery-daily.json` | Daily min+max snapshots (2 entries/day) | Rolling 90 days × 2 (`FELICITY_DAILY_DAYS`) |
 | `battery-energy.json` | Daily charge/discharge kWh history | Rolling 90 days (`FELICITY_DAILY_DAYS`) |
 | `battery-hooks.json` | Registered webhook subscriptions | Until deleted via API |
 | `battery-hook-cooldowns.json` | Per-event cooldown timestamps | Pruned after 48h |

@@ -81,10 +81,10 @@ describe("resolveSnapshotConfig — defaults", () => {
     });
   });
 
-  test("maxIntra derived from days (default 3 days)", () => {
+  test("maxIntra derived from days (default 15 days)", () => {
     withEnv({ FELICITY_SNAPSHOT_DAYS: undefined, FELICITY_SNAPSHOT_MS: undefined }, () => {
       const { ms, maxIntra } = resolveSnapshotConfig();
-      const expectedMax = Math.ceil((3 * 24 * 60 * 60 * 1000) / ms);
+      const expectedMax = Math.ceil((15 * 24 * 60 * 60 * 1000) / ms);
       assert.equal(maxIntra, expectedMax);
     });
   });

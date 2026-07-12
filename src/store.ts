@@ -135,7 +135,45 @@ export class BatterySnapshotStore extends SnapshotStore {
 export class DailySnapshotStore extends SnapshotStore {
   constructor() {
     const { ddays } = resolveSnapshotConfig();
-    super({ fileName: "battery-daily.json", maxSnapshots: ddays, intervalMs: 24 * 60 * 60 * 1000 });
+    // 2 entries per day (min + max), so capacity = ddays * 2
+    super({ fileName: "battery-daily.json", maxSnapshots: ddays * 2, intervalMs: 24 * 60 * 60 * 1000 });
+  }
+
+  // Override to store min + max intra-day snapshots for the previous calendar day.
+  // Uses a date-based check instead of the parent's elapsed-time check to stay idempotent.
+  // intraSnapshots = snapshotStore.getSnapshots() passed by the caller.
+  maybeAdd(batteries: Battery[], intraSnapshots?: BatterySnapshot[]): void {
+    try {
+      const existing  = this._load();
+      // "Yesterday" in UTC. Synthetic ts are stored at noon UTC so they map to the same
+      // local calendar date in any timezone (avoids midnight boundary ambiguity).
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
+      // Idempotent: already have an entry for yesterday → nothing to do.
+      if (existing.some(s => s.ts.startsWith(yesterday))) return;
+
+      const daySnaps  = (intraSnapshots ?? []).filter(s => s.ts.startsWith(yesterday));
+
+      if (daySnaps.length >= 2) {
+        // Pick the real snapshots with lowest / highest total pack voltage.
+        const packTotal = (snap: BatterySnapshot) =>
+          snap.batteries.reduce((sum, b) => sum + b.voltages.reduce((a, v) => a + v, 0), 0);
+        const minSnap = daySnaps.reduce((m, s) => packTotal(s) < packTotal(m) ? s : m, daySnaps[0]);
+        const maxSnap = daySnaps.reduce((m, s) => packTotal(s) > packTotal(m) ? s : m, daySnaps[0]);
+        // Override ts to noon UTC ± 1s so both entries group to the same local date in any timezone.
+        existing.push(
+          { ...minSnap, ts: yesterday + "T11:59:59.000Z" },
+          { ...maxSnap, ts: yesterday + "T12:00:01.000Z" },
+        );
+      } else {
+        // Fallback: store current reading for yesterday (first day or data gap).
+        existing.push({ ts: yesterday + "T12:00:00.000Z", batteries: batteries.map(pickSnapshotFields) });
+      }
+
+      if (existing.length > this._maxSnapshots)
+        existing.splice(0, existing.length - this._maxSnapshots);
+      this._save(existing);
+    } catch { /* non-fatal */ }
   }
 }
 

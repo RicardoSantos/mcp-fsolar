@@ -141,7 +141,7 @@ export class FelicityClient {
     const fetchedAt = new Date().toISOString();
     await this._cache.set(CACHE_KEY, { batteries, fetchedAt }, this._ttl);
     this._snapshotStore.maybeAdd(batteries);
-    this._dailySnapshotStore.maybeAdd(batteries);
+    this._dailySnapshotStore.maybeAdd(batteries, this._snapshotStore.getSnapshots());
     return { batteries, fetchedAt, fromCache: false, trend: this._snapshotStore.getAllTrends(batteries) };
   }
 

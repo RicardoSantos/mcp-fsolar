@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `SnapshotQuery.until` — bounds the other end of the `getSnapshots(query?)` window (`ts <= until`, ISO string or epoch ms, unparseable values ignored). Combined with `since`, callers can request an exact bounded page (`since ≤ ts ≤ until`) instead of only "from a point to the newest entry" — the shape a paged, bandwidth-conscious dashboard client needs. Fully backward compatible.
+
 ## [1.1.0] — 2026-08-31
 
 ### Added

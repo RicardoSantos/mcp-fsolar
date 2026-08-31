@@ -489,15 +489,19 @@ import { snapshotStore, dailySnapshotStore } from 'fsolar-mcp'
 snapshotStore.getSnapshots()                                   // unchanged: full sliding window
 snapshotStore.getSnapshots({ limit: 288 })                     // most recent 288 entries (~2 days @ 10 min)
 snapshotStore.getSnapshots({ since: '2026-08-01T00:00:00Z' })  // everything from a date onward
-dailySnapshotStore.getSnapshots({ since, limit: 60 })           // combine both — since narrows first, limit caps the remainder
+dailySnapshotStore.getSnapshots({ since, until })               // an exact bounded window — e.g. one page of a paged UI
+dailySnapshotStore.getSnapshots({ since, limit: 60 })           // combine with limit — filters narrow first, limit caps the remainder
 ```
 
 ```ts
 interface SnapshotQuery {
   since?: string | number  // ISO timestamp or epoch ms; ts >= since. Unparseable values are ignored.
-  limit?: number           // caps to the most recent N snapshots, applied after `since`. Non-positive values are ignored.
+  until?: string | number  // ISO timestamp or epoch ms; ts <= until. Unparseable values are ignored.
+  limit?: number           // caps to the most recent N snapshots, applied after since/until. Non-positive values are ignored.
 }
 ```
+
+`since` + `until` together are the shape a paged/low-bandwidth client wants: each page request asks for exactly one window instead of downloading the entire store and slicing it locally.
 
 ### `MaterializedState`
 

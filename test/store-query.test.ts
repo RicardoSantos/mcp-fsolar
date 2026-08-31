@@ -98,6 +98,65 @@ test("getSnapshots({ since }) — unparseable value is ignored, not thrown", () 
   assert.deepEqual(store.getSnapshots({ since: "not-a-date" }), fixed);
 });
 
+test("getSnapshots({ until }) — ISO string filters out newer entries", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  const until = new Date(Date.now() - 15 * 60_000).toISOString();
+  const result = store.getSnapshots({ until });
+  assert.deepEqual(result, fixed.slice(0, 3)); // the 40/30/20-min-ago entries
+});
+
+test("getSnapshots({ until }) — epoch ms works the same as ISO string", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  const untilMs = Date.now() - 15 * 60_000;
+  assert.deepEqual(store.getSnapshots({ until: untilMs }), fixed.slice(0, 3));
+});
+
+test("getSnapshots({ until }) — unparseable value is ignored, not thrown", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  assert.deepEqual(store.getSnapshots({ until: "not-a-date" }), fixed);
+});
+
+test("getSnapshots({ since, until }) — bounds an exact window on both ends", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  const since = new Date(Date.now() - 35 * 60_000).toISOString();
+  const until = new Date(Date.now() - 15 * 60_000).toISOString();
+  const result = store.getSnapshots({ since, until });
+  assert.deepEqual(result, fixed.slice(1, 3)); // the 30/20-min-ago entries
+});
+
+test("getSnapshots({ since, until }) — until before since yields empty array, no throw", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  const since = new Date(Date.now() - 15 * 60_000).toISOString();
+  const until = new Date(Date.now() - 35 * 60_000).toISOString();
+  assert.deepEqual(store.getSnapshots({ since, until }), []);
+});
+
+test("getSnapshots({ since, until, limit }) — window bounds apply before limit caps", () => {
+  const store = new BatterySnapshotStore();
+  const fixed = fixedSnapshots();
+  priv(store)._load = () => fixed;
+
+  const since = new Date(Date.now() - 45 * 60_000).toISOString(); // keeps all 5
+  const until = new Date(Date.now() - 5 * 60_000).toISOString();  // drops the 0-min-ago entry -> 4 left
+  const result = store.getSnapshots({ since, until, limit: 2 });
+  assert.deepEqual(result, fixed.slice(2, 4)); // the 20/10-min-ago entries
+});
+
 test("getSnapshots({ since, limit }) — since narrows first, then limit caps the remainder", () => {
   const store = new BatterySnapshotStore();
   const fixed = fixedSnapshots();

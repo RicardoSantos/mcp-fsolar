@@ -226,15 +226,16 @@ One entry per calendar day (24 h interval). Retained for `FELICITY_DAILY_DAYS` d
 
 ```ts
 getSnapshots(query?: SnapshotQuery): BatterySnapshot[]
-// SnapshotQuery = { since?: string | number; limit?: number }
+// SnapshotQuery = { since?: string | number; until?: string | number; limit?: number }
 ```
 
 Both `snapshotStore.getSnapshots()` and `dailySnapshotStore.getSnapshots()` (the latter inherits from `SnapshotStore`) accept an optional query:
 
 - `since` — ISO timestamp or epoch ms; only snapshots with `ts >= since` are returned. An unparseable value is ignored rather than throwing.
-- `limit` — caps the result to the most recent N snapshots (applied after `since`), preserving chronological (oldest → newest) order. A non-positive value is ignored.
+- `until` — ISO timestamp or epoch ms; only snapshots with `ts <= until` are returned. An unparseable value is ignored rather than throwing. Combine with `since` to bound an exact window (`since ≤ ts ≤ until`) instead of only "from a point to the newest entry."
+- `limit` — caps the result to the most recent N snapshots (applied after `since`/`until`), preserving chronological (oldest → newest) order. A non-positive value is ignored.
 
-Calling `getSnapshots()` with no arguments is unchanged — it still returns the full sliding window held by the store. The query is a read-time filter only; it does not affect what `maybeAdd` persists or evicts. Useful for dashboards that page through history in fixed time windows instead of rendering the entire (already-capped) store on every fetch.
+Calling `getSnapshots()` with no arguments is unchanged — it still returns the full sliding window held by the store. The query is a read-time filter only; it does not affect what `maybeAdd` persists or evicts. Useful for dashboards that page through history in fixed time windows (bounding both `since` and `until`) instead of rendering — or transferring over the wire — the entire (already-capped) store on every fetch. That matters most on constrained links: a paged fetch for a 30-day window is a fraction of the payload of the full 365-day daily store.
 
 ### Materialized state (`battery-state.json`)
 

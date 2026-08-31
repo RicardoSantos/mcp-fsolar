@@ -18,7 +18,9 @@ export interface BatterySnapshot {
 export interface SnapshotQuery {
   /** ISO timestamp or epoch ms — only snapshots with `ts >= since` are returned. Unparseable values are ignored. */
   since?: string | number;
-  /** Cap the result to the most recent N snapshots (applied after `since`), preserving chronological order. Non-positive values are ignored. */
+  /** ISO timestamp or epoch ms — only snapshots with `ts <= until` are returned. Unparseable values are ignored. Combine with `since` to bound an exact window. */
+  until?: string | number;
+  /** Cap the result to the most recent N snapshots (applied after `since`/`until`), preserving chronological order. Non-positive values are ignored. */
   limit?: number;
 }
 
@@ -94,6 +96,11 @@ export class SnapshotStore {
       const sinceMs = new Date(query.since).getTime();
       if (!Number.isNaN(sinceMs))
         snapshots = snapshots.filter((s) => new Date(s.ts).getTime() >= sinceMs);
+    }
+    if (query?.until != null) {
+      const untilMs = new Date(query.until).getTime();
+      if (!Number.isNaN(untilMs))
+        snapshots = snapshots.filter((s) => new Date(s.ts).getTime() <= untilMs);
     }
     if (query?.limit != null && query.limit > 0 && snapshots.length > query.limit)
       snapshots = snapshots.slice(snapshots.length - query.limit);

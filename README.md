@@ -263,7 +263,7 @@ The package is written in TypeScript. All types are exported from the package ro
 import type {
   Battery, BatteryModule,
   BatteryHealth, AutonomyResult, AutonomyPerBattery, AutonomyOptions,
-  BatterySnapshot, BalanceTrend,
+  BatterySnapshot, BalanceTrend, SnapshotQuery,
   BatteriesResult, BatteryResult,
   FelicityClientOptions,
   MaterializedState,
@@ -478,6 +478,24 @@ interface BatterySnapshot {
     warningCount:   number
     batCycleIndex:  number | null
   }>
+}
+```
+
+Read snapshots with `snapshotStore.getSnapshots()` / `dailySnapshotStore.getSnapshots()`. Both accept an optional `SnapshotQuery` to page through history instead of always receiving the full stored window:
+
+```ts
+import { snapshotStore, dailySnapshotStore } from 'fsolar-mcp'
+
+snapshotStore.getSnapshots()                                   // unchanged: full sliding window
+snapshotStore.getSnapshots({ limit: 288 })                     // most recent 288 entries (~2 days @ 10 min)
+snapshotStore.getSnapshots({ since: '2026-08-01T00:00:00Z' })  // everything from a date onward
+dailySnapshotStore.getSnapshots({ since, limit: 60 })           // combine both — since narrows first, limit caps the remainder
+```
+
+```ts
+interface SnapshotQuery {
+  since?: string | number  // ISO timestamp or epoch ms; ts >= since. Unparseable values are ignored.
+  limit?: number           // caps to the most recent N snapshots, applied after `since`. Non-positive values are ignored.
 }
 ```
 

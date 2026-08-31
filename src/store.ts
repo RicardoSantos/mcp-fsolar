@@ -15,6 +15,13 @@ export interface BatterySnapshot {
   batteries: SnapshotEntry[];
 }
 
+export interface SnapshotQuery {
+  /** ISO timestamp or epoch ms — only snapshots with `ts >= since` are returned. Unparseable values are ignored. */
+  since?: string | number;
+  /** Cap the result to the most recent N snapshots (applied after `since`), preserving chronological order. Non-positive values are ignored. */
+  limit?: number;
+}
+
 export interface BalanceTrend {
   direction:              TrendDirection;
   deltaChange:            number;
@@ -81,7 +88,17 @@ export class SnapshotStore {
     } catch { /* non-fatal */ }
   }
 
-  getSnapshots(): BatterySnapshot[] { return this._load(); }
+  getSnapshots(query?: SnapshotQuery): BatterySnapshot[] {
+    let snapshots = this._load();
+    if (query?.since != null) {
+      const sinceMs = new Date(query.since).getTime();
+      if (!Number.isNaN(sinceMs))
+        snapshots = snapshots.filter((s) => new Date(s.ts).getTime() >= sinceMs);
+    }
+    if (query?.limit != null && query.limit > 0 && snapshots.length > query.limit)
+      snapshots = snapshots.slice(snapshots.length - query.limit);
+    return snapshots;
+  }
 }
 
 // ── BatterySnapshotStore ──────────────────────────────────────────────────────

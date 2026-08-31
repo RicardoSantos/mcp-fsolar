@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `SnapshotStore.getSnapshots(query?)` now accepts an optional `{ since?, limit? }` query so callers can page through history instead of always receiving the full stored window. `since` (ISO string or epoch ms) filters to `ts >= since`; `limit` caps the result to the most recent N entries, applied after `since`. Inherited by both `snapshotStore` and `dailySnapshotStore`. Calling `getSnapshots()` with no arguments is unchanged — fully backward compatible. New `SnapshotQuery` type exported from the package root.
+
 ## [1.0.41] — 2026-07-12
 
 ### Fixed

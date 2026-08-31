@@ -18,7 +18,8 @@ export { buildBattery, type Battery, type BatteryModule,
 // Snapshot stores
 export { SnapshotStore, BatterySnapshotStore, DailySnapshotStore, DailyEnergyStore,
          snapshotStore, dailySnapshotStore, dailyEnergyStore, resolveSnapshotConfig,
-         type BatterySnapshot, type BalanceTrend, type DailyEnergy } from "./src/store";
+         type BatterySnapshot, type BalanceTrend, type DailyEnergy,
+         type SnapshotQuery } from "./src/store";
 
 // Webhooks
 export { HookStore, hookStore, HOOK_COOLDOWNS_H,

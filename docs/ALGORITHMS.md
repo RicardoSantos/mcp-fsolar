@@ -222,6 +222,20 @@ Oldest entries are evicted when the limit is reached (sliding window). Writes ar
 
 One entry per calendar day (24 h interval). Retained for `FELICITY_DAILY_DAYS` days. Useful for long-term SOH and delta trend analysis.
 
+### Querying snapshots (`getSnapshots`)
+
+```ts
+getSnapshots(query?: SnapshotQuery): BatterySnapshot[]
+// SnapshotQuery = { since?: string | number; limit?: number }
+```
+
+Both `snapshotStore.getSnapshots()` and `dailySnapshotStore.getSnapshots()` (the latter inherits from `SnapshotStore`) accept an optional query:
+
+- `since` — ISO timestamp or epoch ms; only snapshots with `ts >= since` are returned. An unparseable value is ignored rather than throwing.
+- `limit` — caps the result to the most recent N snapshots (applied after `since`), preserving chronological (oldest → newest) order. A non-positive value is ignored.
+
+Calling `getSnapshots()` with no arguments is unchanged — it still returns the full sliding window held by the store. The query is a read-time filter only; it does not affect what `maybeAdd` persists or evicts. Useful for dashboards that page through history in fixed time windows instead of rendering the entire (already-capped) store on every fetch.
+
 ### Materialized state (`battery-state.json`)
 
 Written by the background poller on every successful tick. Contains pre-computed `health`, `autonomy`, `trends`, and `fleet` summary — consumers call `readState()` for zero-latency reads without recomputing.

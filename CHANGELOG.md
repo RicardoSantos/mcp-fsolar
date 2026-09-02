@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-09-02
+
+### Fixed
+- `buildBattery()` — `remainingKwh` now falls back to `soc% × ratedEnergyKwh` when the cloud API reports `remainingBatteryEnergy1` as `0` or omits it (observed in the wild at 96% SOC, which previously produced `remainingKwh: 0` and broke `computeAutonomy()`'s floor-clamp logic downstream — it always reported the reserve floor instead of a real projection). Falls back only when `ratedEnergyKwh` is known; a genuine `0` with no rated capacity to derive from still reports `0`.
+
 ## [1.2.0] — 2026-08-31
 
 ### Added

@@ -87,12 +87,22 @@ export function buildBattery(device: Record<string, unknown>, snap: Record<strin
                                      : bmsChargingState === BMS_DISCHARGING_REG ? ChargingState.DISCHARGING
                                      : ChargingState.STANDBY;
 
+  const soc = parseFloat(String(snap.battSoc ?? device.battSoc ?? "0"));
+  const ratedEnergyKwh = nullableFloat(snap.ratedEnergy as string | number | null | undefined) || null;
+  // remainingBatteryEnergy1 is sometimes missing/0 from the cloud API even at high SOC
+  // (seen in the wild while the field was absent from a live payload). Fall back to
+  // soc% of rated capacity instead of reporting an obviously-wrong 0 kWh.
+  const reportedRemainingKwh = parseFloat(String(snap.remainingBatteryEnergy1 ?? "0"));
+  const remainingKwh = reportedRemainingKwh > 0 || !ratedEnergyKwh
+    ? reportedRemainingKwh
+    : ratedEnergyKwh * (soc / 100);
+
   return {
     sn:            String(device.deviceSn ?? ""),
     alias:         String(device.alias    ?? ""),
     model:         String(device.deviceModel ?? ""),
     status:        (device.status ?? "NM") as Battery["status"],
-    soc:           parseFloat(String(snap.battSoc    ?? device.battSoc  ?? "0")),
+    soc,
     soh:           parseFloat(String(snap.battSoh    ?? "100")),
     voltage:       parseFloat(String(snap.battVolt   ?? "0")),
     current:       parseFloat(String(snap.battCurr   ?? "0")),
@@ -122,9 +132,9 @@ export function buildBattery(device: Record<string, unknown>, snap: Record<strin
     batFullCount:         nullableInt(snap.batFullCount         as string | number | null | undefined),
     batUnderVoltageCount: nullableInt(snap.batUnderVoltageCount as string | number | null | undefined),
     warningCount:         nullableInt(snap.warningCount as string | number | null | undefined) ?? 0,
-    remainingKwh:         parseFloat(String(snap.remainingBatteryEnergy1 ?? "0")),
+    remainingKwh,
     capacityAh:           parseFloat(String(snap.battCapacity ?? device.battCapacity ?? String(DEFAULT_CAPACITY_AH))),
-    ratedEnergyKwh:       nullableFloat(snap.ratedEnergy as string | number | null | undefined) || null,
+    ratedEnergyKwh,
     dataTime:             (snap.dataTimeStr as string | null | undefined) ?? null,
     reportFreqSec:        nullableInt(snap.reportFreq as string | number | null | undefined),
     wifiSignal:           parseInt(String(snap.wifiSignal ?? device.wifiSignal ?? "0"), 10),

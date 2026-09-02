@@ -155,3 +155,23 @@ test("SOC falls back to device.battSoc when snap has none", () => {
   const b = buildBattery({ ...DEVICE, battSoc: "75" }, { ...SNAP, battSoc: undefined });
   assert.equal(b.soc, 75);
 });
+
+test("remainingKwh: uses reported value when present", () => {
+  const b = buildBattery(DEVICE, { ...SNAP, remainingBatteryEnergy1: "10.24", ratedEnergy: "16" });
+  assert.equal(b.remainingKwh, 10.24);
+});
+
+test("remainingKwh: falls back to soc% of ratedEnergy when API reports 0", () => {
+  const b = buildBattery(DEVICE, { ...SNAP, battSoc: "96", remainingBatteryEnergy1: "0", ratedEnergy: "16" });
+  assert.equal(b.remainingKwh, 15.36);
+});
+
+test("remainingKwh: falls back to soc% of ratedEnergy when field is missing entirely", () => {
+  const b = buildBattery(DEVICE, { ...SNAP, battSoc: "96", remainingBatteryEnergy1: undefined, ratedEnergy: "16" });
+  assert.equal(b.remainingKwh, 15.36);
+});
+
+test("remainingKwh: stays 0 when reported 0 and no ratedEnergy to fall back on", () => {
+  const b = buildBattery(DEVICE, { ...SNAP, battSoc: "96", remainingBatteryEnergy1: "0", ratedEnergy: undefined });
+  assert.equal(b.remainingKwh, 0);
+});

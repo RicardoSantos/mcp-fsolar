@@ -49,6 +49,7 @@ export interface AutonomyResult {
   dischargeRateKw:        number;
   sunriseDischargeRateKw: number;
   estimatedHours:         number;
+  estimatedHoursSmoothed: number;
   estimatedHoursToFull:   number | null;
   estimatedSocAtSunrise:  number | null;
   hoursToSunrise:         number | null;
@@ -193,6 +194,12 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
   const fleetMinKwh    = totalCapacityKwh * (minSocPct / 100);
   const fleetUsableKwh = Math.max(0, totalRemainingKwh - fleetMinKwh);
   const estimatedHours = Math.round(fleetUsableKwh / dischargeRateKw * 10) / 10;
+  // Same "hours until minSocPct" math as estimatedHours, but at the smoothed rate — for
+  // callers that turn this into an absolute wall-clock prediction (e.g. "5% at 03:40"),
+  // which needs the same spike-resistance as the sunrise projection: an unbounded
+  // extrapolation of a momentary reading is worse here than the sunrise case, since
+  // there's no horizon cap to limit how far out the spike gets projected.
+  const estimatedHoursSmoothed = Math.round(fleetUsableKwh / sunriseDischargeRateKw * 10) / 10;
 
   let estimatedHoursToFull: number | null = null;
   const avgSoc = batteries.reduce((s, b) => s + b.soc, 0) / batteries.length;
@@ -246,6 +253,7 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
     dischargeRateKw:        Math.round(dischargeRateKw * 10) / 10,
     sunriseDischargeRateKw: Math.round(sunriseDischargeRateKw * 10) / 10,
     estimatedHours,
+    estimatedHoursSmoothed,
     estimatedHoursToFull,
     estimatedSocAtSunrise,
     hoursToSunrise:       hoursToSunrise != null ? Math.round(hoursToSunrise * 10) / 10 : null,

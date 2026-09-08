@@ -414,6 +414,7 @@ interface AutonomyResult {
   dischargeRateKw:        number       // instantaneous "right now" rate — feeds estimatedHours / perBattery, never smoothed
   sunriseDischargeRateKw: number       // rate used for the sunrise projection fields below; averaged over a trailing window (live reading + up to DISCHARGE_RATE_SNAP_WINDOW-1 recent snapshots) so a brief spike (kettle, oven) isn't extrapolated across the whole night. Equals dischargeRateKw when not actively discharging.
   estimatedHours:         number       // hours until fleet hits minSocPct, at the instantaneous dischargeRateKw
+  estimatedHoursSmoothed: number       // same, but at sunriseDischargeRateKw — use this when presenting an absolute wall-clock prediction (e.g. "5% at 03:40"), which needs the same spike-resistance as the sunrise projection
   estimatedHoursToFull:   number | null  // hours until fully charged; null if not charging
   estimatedSocAtSunrise:  number | null  // % SOC at next sunrise; null if sunriseAt not given
   hoursToSunrise:         number | null

@@ -321,6 +321,22 @@ test("computeAutonomy — minSocPct reserves capacity and reduces hours", () => 
   assert.equal(computeAutonomy([bat], [], { minSocPct: 10 }).estimatedHours, 9);
 });
 
+test("computeAutonomy — estimatedHoursSmoothed uses the smoothed rate, diverging from estimatedHours on a spike", () => {
+  // Calm history at -1000W, current instant reading spikes to -4000W.
+  const calmSnaps: BatterySnapshot[] = Array.from({ length: 5 }, (_, i) =>
+    makeSnap([makeBatEntry({ power: -1000 })], 50 - i * 10));
+  const bat = makeBat({ power: -4000, remainingKwh: 10, ratedEnergyKwh: 10 });
+  const r   = computeAutonomy([bat], calmSnaps, { minSocPct: 0 });
+  assert.equal(r.estimatedHours, 2.5);         // 10 / 4
+  assert.equal(r.estimatedHoursSmoothed, 6.7); // 10 / ((5*1000 + 4000) / 6 / 1000) = 10 / 1.5
+});
+
+test("computeAutonomy — estimatedHoursSmoothed equals estimatedHours when not actively discharging", () => {
+  const bat = makeBat({ power: 0, remainingKwh: 10, ratedEnergyKwh: 10 });
+  const r   = computeAutonomy([bat], [], { minSocPct: 0, defaultDischargeKw: 2 });
+  assert.equal(r.estimatedHoursSmoothed, r.estimatedHours);
+});
+
 // ── computeAutonomy — estimatedHoursToFull ───────────────────────────────────
 
 test("computeAutonomy — estimatedHoursToFull null when not charging", () => {

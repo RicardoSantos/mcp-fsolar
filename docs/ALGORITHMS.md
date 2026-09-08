@@ -95,6 +95,7 @@ Returns `AutonomyResult` with fleet totals and a per-battery breakdown.
 | `dischargeRateKw` | `number` | ✓ | Instantaneous "right now" fleet discharge rate — feeds `estimatedHours` and `perBattery` (see below) |
 | `sunriseDischargeRateKw` | `number` | ✓ | Rate used for the sunrise projection fields below — smoothed over a trailing window (see below) |
 | `estimatedHours` | `number` | ✓ | Hours until fleet SOC hits `minSocPct` at the instantaneous discharge rate |
+| `estimatedHoursSmoothed` | `number` | ✓ | Same as `estimatedHours`, but at `sunriseDischargeRateKw` — use this when presenting an absolute wall-clock prediction (e.g. "5% at 03:40"); a single instantaneous reading extrapolated with no horizon cap is even more spike-prone than the sunrise projection |
 | `estimatedHoursToFull` | `number \| null` | when charging | Hours until fully charged; `null` if not charging |
 | `estimatedSocAtSunrise` | `number \| null` | when `sunriseAt` given | Estimated fleet SOC % at next sunrise |
 | `hoursToSunrise` | `number \| null` | when `sunriseAt` given | Hours between now and `sunriseAt` |
@@ -145,6 +146,7 @@ totalCapacityKwh = packCapacityKwh  (opt)
                    ?? sum(bat.ratedEnergyKwh ?? bat.remainingKwh / (bat.soc / 100))
 fleetUsableKwh   = max(0, totalRemainingKwh − totalCapacityKwh × minSocPct / 100)
 estimatedHours   = round(fleetUsableKwh / dischargeRateKw, 1)
+estimatedHoursSmoothed = round(fleetUsableKwh / sunriseDischargeRateKw, 1)
 ```
 
 Default `minSocPct` = **5 %**.

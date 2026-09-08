@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.3] — 2026-09-08
+
+### Added
+- `AutonomyResult.estimatedHoursSmoothed` — same "hours until `minSocPct`" math as `estimatedHours`, but computed at `sunriseDischargeRateKw` (added in 1.2.2) instead of the raw instantaneous rate. Any caller that turns `estimatedHours` into an absolute wall-clock prediction (e.g. "5% at 03:40") should use this instead — that framing needs the same spike-resistance as the sunrise projection, arguably more so, since there's no horizon cap to limit how far a momentary reading gets extrapolated.
+
 ## [1.2.2] — 2026-09-08
 
 ### Added

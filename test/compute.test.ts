@@ -259,6 +259,36 @@ test("computeAutonomy — falls back to defaultDischargeKw when not discharging 
   assert.equal(r.dischargeRateKw, 1.5);
 });
 
+test("computeAutonomy — dischargeRateKw stays the raw instant reading even with snapshot history (not smoothed)", () => {
+  const calmSnaps: BatterySnapshot[] = Array.from({ length: 5 }, (_, i) =>
+    makeSnap([makeBatEntry({ power: -500 })], 50 - i * 10));
+  const bat = makeBat({ power: -5000 });
+  const r   = computeAutonomy([bat], calmSnaps);
+  assert.equal(r.dischargeRateKw, 5); // honest "right now" rate — used for estimatedHours
+});
+
+test("computeAutonomy — sunriseDischargeRateKw is averaged over the trailing snapshot window, not just the instant reading", () => {
+  // 5 calm snapshots at -500W, then the current instant reading spikes to -5000W
+  // (kettle/oven). The multi-hour sunrise projection should reflect the recent trend,
+  // not the spike alone — otherwise it always predicts the reserve floor.
+  const calmSnaps: BatterySnapshot[] = Array.from({ length: 5 }, (_, i) =>
+    makeSnap([makeBatEntry({ power: -500 })], 50 - i * 10));
+  const bat = makeBat({ power: -5000 });
+  const r   = computeAutonomy([bat], calmSnaps);
+  assert.equal(r.sunriseDischargeRateKw, 1.3); // (5*500 + 5000) / 6 / 1000 = 1.25, rounded to 1 decimal
+});
+
+test("computeAutonomy — sunriseDischargeRateKw falls back to the instant reading alone when there is no history", () => {
+  const bat = makeBat({ power: -3000 });
+  const r   = computeAutonomy([bat], []);
+  assert.equal(r.sunriseDischargeRateKw, 3);
+});
+
+test("computeAutonomy — sunriseDischargeRateKw equals dischargeRateKw when not actively discharging", () => {
+  const r = computeAutonomy([makeBat({ power: 0 })], [], { defaultDischargeKw: 1.5 });
+  assert.equal(r.sunriseDischargeRateKw, r.dischargeRateKw);
+});
+
 test("computeAutonomy — uses snapshot history rate when available and not live-discharging", () => {
   const bat  = makeBat({ power: 0 });
   const snap: BatterySnapshot = {

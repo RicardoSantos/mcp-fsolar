@@ -409,16 +409,17 @@ Returned by `computeAutonomy(batteries, snapshots, opts)`.
 
 ```ts
 interface AutonomyResult {
-  totalRemainingKwh:     number       // sum of remainingKwh across all batteries
-  totalCapacityKwh:      number       // sum of rated (or back-calculated) capacity
-  dischargeRateKw:       number       // fleet rate used for all estimates
-  estimatedHours:        number       // hours until fleet hits minSocPct
-  estimatedHoursToFull:  number | null  // hours until fully charged; null if not charging
-  estimatedSocAtSunrise: number | null  // % SOC at next sunrise; null if sunriseAt not given
-  hoursToSunrise:        number | null
-  estimatedDischargeKwh: number | null  // kWh discharged between now and sunrise
-  estimatedRemainingKwh: number | null  // kWh remaining at sunrise
-  perBattery:            AutonomyPerBattery[]
+  totalRemainingKwh:      number       // sum of remainingKwh across all batteries
+  totalCapacityKwh:       number       // sum of rated (or back-calculated) capacity
+  dischargeRateKw:        number       // instantaneous "right now" rate — feeds estimatedHours / perBattery, never smoothed
+  sunriseDischargeRateKw: number       // rate used for the sunrise projection fields below; averaged over a trailing window (live reading + up to DISCHARGE_RATE_SNAP_WINDOW-1 recent snapshots) so a brief spike (kettle, oven) isn't extrapolated across the whole night. Equals dischargeRateKw when not actively discharging.
+  estimatedHours:         number       // hours until fleet hits minSocPct, at the instantaneous dischargeRateKw
+  estimatedHoursToFull:   number | null  // hours until fully charged; null if not charging
+  estimatedSocAtSunrise:  number | null  // % SOC at next sunrise; null if sunriseAt not given
+  hoursToSunrise:         number | null
+  estimatedDischargeKwh:  number | null  // kWh discharged between now and sunrise, at sunriseDischargeRateKw
+  estimatedRemainingKwh:  number | null  // kWh remaining at sunrise
+  perBattery:             AutonomyPerBattery[]
 }
 
 interface AutonomyPerBattery {

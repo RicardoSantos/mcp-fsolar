@@ -24,6 +24,7 @@ export const MIN_ACTIVE_CHARGE_W     =  50; // W   — minimum total pack power 
 export const MIN_ACTIVE_BAT_W        =  50; // W   — per-battery minimum for individual autonomy estimates
 export const MIN_DISCHARGE_RATE_KW   =   0.2; // kW — clamp floor for discharge rate
 export const MAX_DISCHARGE_RATE_KW   =  24;   // kW — clamp ceiling for discharge rate
+export const DISCHARGE_RATE_SNAP_WINDOW = 6;  // snapshots — trailing window averaged for the live discharge rate, so a brief spike (kettle, oven) isn't extrapolated across the full remaining night
 
 // ── Webhook delivery ──────────────────────────────────────────────────────────
 

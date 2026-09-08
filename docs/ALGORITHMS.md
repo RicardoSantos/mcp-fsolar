@@ -92,12 +92,13 @@ Returns `AutonomyResult` with fleet totals and a per-battery breakdown.
 |---|---|---|---|
 | `totalRemainingKwh` | `number` | ✓ | Sum of `bat.remainingKwh` across all batteries |
 | `totalCapacityKwh` | `number` | ✓ | Sum of rated (or back-calculated) capacity across all batteries |
-| `dischargeRateKw` | `number` | ✓ | Fleet discharge rate used for all estimates (see below) |
-| `estimatedHours` | `number` | ✓ | Hours until fleet SOC hits `minSocPct` at current discharge rate |
+| `dischargeRateKw` | `number` | ✓ | Instantaneous "right now" fleet discharge rate — feeds `estimatedHours` and `perBattery` (see below) |
+| `sunriseDischargeRateKw` | `number` | ✓ | Rate used for the sunrise projection fields below — smoothed over a trailing window (see below) |
+| `estimatedHours` | `number` | ✓ | Hours until fleet SOC hits `minSocPct` at the instantaneous discharge rate |
 | `estimatedHoursToFull` | `number \| null` | when charging | Hours until fully charged; `null` if not charging |
 | `estimatedSocAtSunrise` | `number \| null` | when `sunriseAt` given | Estimated fleet SOC % at next sunrise |
 | `hoursToSunrise` | `number \| null` | when `sunriseAt` given | Hours between now and `sunriseAt` |
-| `estimatedDischargeKwh` | `number \| null` | when `sunriseAt` given | Energy discharged between now and sunrise (`dischargeRateKw × hoursToSunrise`) |
+| `estimatedDischargeKwh` | `number \| null` | when `sunriseAt` given | Energy discharged between now and sunrise (`sunriseDischargeRateKw × hoursToSunrise`) |
 | `estimatedRemainingKwh` | `number \| null` | when `sunriseAt` given | Estimated total remaining kWh at sunrise (floored at `minSocPct` reserve) |
 | `perBattery` | `AutonomyPerBattery[]` | ✓ | Per-battery breakdown (see below) |
 
@@ -116,6 +117,26 @@ dischargeRateKw = avg(sum of |discharge power| per snapshot) / 1000
 
 Falls back to `defaultDischargeKw` (default **1.5 kW**) if no night snapshots exist.
 Clamped to `[0.2, 24] kW`.
+
+This is the honest instantaneous rate — never smoothed — because `estimatedHours` and `perBattery` are meant to answer "how long at *this* rate," which should track what's happening right now.
+
+### Sunrise discharge rate
+
+`sunriseDischargeRateKw` feeds the multi-hour sunrise projection instead of `dischargeRateKw`. Projecting a single instantaneous reading across every remaining hour to sunrise means a brief spike (kettle, oven — a few minutes to ~20 minutes) gets treated as if it held for the whole night, which for a many-hour horizon almost always exceeds usable capacity and pins the estimate at the reserve floor (`minSocPct`) even when the real overnight average never gets close to it.
+
+**If actively discharging** (`totalPowerW < −100 W`):
+```
+recentDischargingW = last (DISCHARGE_RATE_SNAP_WINDOW − 1) snapshots where any battery has power < −100 W,
+                      each reduced to sum of |discharge power|
+samplesW            = [...recentDischargingW, |totalPowerW|]   // live reading always included
+sunriseDischargeRateKw = avg(samplesW) / 1000
+```
+
+`DISCHARGE_RATE_SNAP_WINDOW` defaults to **6** samples (the live reading plus up to 5 recent snapshots — roughly the last hour at the default 10-minute snapshot interval). The live reading always counts as one sample, so a genuinely new sustained load (heating running for hours, not a blip) is still reflected immediately rather than waiting for it to age into the snapshot store.
+
+**Otherwise** (charging or standby): `sunriseDischargeRateKw = dischargeRateKw` (the historical-average branch above already isn't a single-point reading).
+
+Clamped to `[0.2, 24] kW`, same as `dischargeRateKw`.
 
 ### Fleet — hours until `minSocPct` (discharge)
 
@@ -172,7 +193,7 @@ totalCapacityKwh      = packCapacityKwh
                         ?? sum(bat.ratedEnergyKwh ?? bat.remainingKwh / (bat.soc / 100))
 
 hoursToSunrise        = max(0, (sunriseAt − now) / 3_600_000)
-discharged            = dischargeRateKw × hoursToSunrise
+discharged            = sunriseDischargeRateKw × hoursToSunrise
 minKwh                = totalCapacityKwh × (minSocPct / 100)
 estimatedKwh          = max(minKwh, totalRemainingKwh − discharged)
 estimatedSocAtSunrise = clamp(round(estimatedKwh / totalCapacityKwh × 100), minSocPct, 100)
@@ -557,6 +578,7 @@ All non-obvious numeric literals in the package are named constants. This table 
 | `MIN_ACTIVE_BAT_W` | `50` | W | Per-battery \|power\| must exceed this to use live rate instead of fleet-average |
 | `MIN_DISCHARGE_RATE_KW` | `0.2` | kW | Clamp floor for discharge rate estimate |
 | `MAX_DISCHARGE_RATE_KW` | `24` | kW | Clamp ceiling for discharge rate estimate |
+| `DISCHARGE_RATE_SNAP_WINDOW` | `6` | snapshots | Trailing window (live reading + recent snapshots) averaged into `sunriseDischargeRateKw` |
 
 ### Balance trend — `src/store.ts`
 

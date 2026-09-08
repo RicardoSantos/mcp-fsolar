@@ -10,7 +10,7 @@ import {
   NOMINAL_VOLTAGE_V, MIN_POWER_FOR_CRATE_W,
   DISCHARGE_DELTA_MAX_MV, DISCHARGE_DELTA_MIN_SNAPS,
   MIN_ACTIVE_DISCHARGE_W, MIN_ACTIVE_CHARGE_W, MIN_ACTIVE_BAT_W,
-  MIN_DISCHARGE_RATE_KW, MAX_DISCHARGE_RATE_KW,
+  MIN_DISCHARGE_RATE_KW, MAX_DISCHARGE_RATE_KW, DISCHARGE_RATE_SNAP_WINDOW,
 } from "./constants";
 
 // Re-export constants used by tests that import from this module (legacy import path)
@@ -44,16 +44,17 @@ export interface AutonomyPerBattery {
 }
 
 export interface AutonomyResult {
-  totalRemainingKwh:     number;
-  totalCapacityKwh:      number;
-  dischargeRateKw:       number;
-  estimatedHours:        number;
-  estimatedHoursToFull:  number | null;
-  estimatedSocAtSunrise: number | null;
-  hoursToSunrise:        number | null;
-  estimatedDischargeKwh: number | null;
-  estimatedRemainingKwh: number | null;
-  perBattery:            AutonomyPerBattery[];
+  totalRemainingKwh:      number;
+  totalCapacityKwh:       number;
+  dischargeRateKw:        number;
+  sunriseDischargeRateKw: number;
+  estimatedHours:         number;
+  estimatedHoursToFull:   number | null;
+  estimatedSocAtSunrise:  number | null;
+  hoursToSunrise:         number | null;
+  estimatedDischargeKwh:  number | null;
+  estimatedRemainingKwh:  number | null;
+  perBattery:             AutonomyPerBattery[];
 }
 
 export interface AutonomyOptions {
@@ -150,6 +151,9 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
   const totalRemainingKwh = batteries.reduce((s, b) => s + b.remainingKwh, 0);
   const totalPowerW       = batteries.reduce((s, b) => s + (b.power ?? 0), 0);
 
+  // dischargeRateKw reflects what's happening right now — used for "hours left at this
+  // rate" (estimatedHours, perBattery). It intentionally is NOT smoothed: it's the honest
+  // instantaneous reading.
   let dischargeRateKw: number;
   if (totalPowerW < -MIN_ACTIVE_DISCHARGE_W) {
     dischargeRateKw = -totalPowerW / 1000;
@@ -161,6 +165,26 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
     dischargeRateKw = avgW > MIN_ACTIVE_DISCHARGE_W ? avgW / 1000 : defaultDischargeKw;
   }
   dischargeRateKw = clamp(MIN_DISCHARGE_RATE_KW, dischargeRateKw, MAX_DISCHARGE_RATE_KW);
+
+  // sunriseDischargeRateKw is the rate used to extrapolate SOC across every remaining hour
+  // to sunrise — a multi-hour horizon, so it's averaged over a trailing window (live reading
+  // + up to DISCHARGE_RATE_SNAP_WINDOW-1 recent snapshots) instead of the instant reading.
+  // Otherwise a brief spike (kettle, oven) gets projected across the whole night and always
+  // predicts the reserve floor, even though the real overnight average never gets close.
+  // The live reading still always counts as one sample, so a genuinely new sustained load
+  // is reflected immediately rather than waiting for it to age into the snapshot store.
+  let sunriseDischargeRateKw: number;
+  if (totalPowerW < -MIN_ACTIVE_DISCHARGE_W) {
+    const recentDischargingW = snapshots
+      .slice(-(DISCHARGE_RATE_SNAP_WINDOW - 1))
+      .filter((s) => s.batteries.some((b) => (b.power ?? 0) < -MIN_ACTIVE_DISCHARGE_W))
+      .map(snapDischargeW);
+    const samplesW = [...recentDischargingW, -totalPowerW];
+    sunriseDischargeRateKw = samplesW.reduce((a, b) => a + b, 0) / samplesW.length / 1000;
+  } else {
+    sunriseDischargeRateKw = dischargeRateKw;
+  }
+  sunriseDischargeRateKw = clamp(MIN_DISCHARGE_RATE_KW, sunriseDischargeRateKw, MAX_DISCHARGE_RATE_KW);
 
   const totalCapacityKwh  = packCapacityKwh
     ?? batteries.reduce((s, b) => s + (b.ratedEnergyKwh ?? (b.soc > 0 ? b.remainingKwh / (b.soc / 100) : 0)), 0);
@@ -210,16 +234,17 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
   if (sunriseAt != null && totalCapacityKwh > 0) {
     hoursToSunrise = Math.max(0, (new Date(sunriseAt as string).getTime() - Date.now()) / 3_600_000);
     const minKwh   = totalCapacityKwh * (minSocPct / 100);
-    const remaining = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
+    const remaining = Math.max(minKwh, totalRemainingKwh - sunriseDischargeRateKw * hoursToSunrise);
     estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / totalCapacityKwh) * 100), 100);
-    estimatedDischargeKwh = Math.round(dischargeRateKw * hoursToSunrise * 10) / 10;
+    estimatedDischargeKwh = Math.round(sunriseDischargeRateKw * hoursToSunrise * 10) / 10;
     estimatedRemainingKwh = Math.round(remaining * 10) / 10;
   }
 
   return {
-    totalRemainingKwh:    Math.round(totalRemainingKwh * 10) / 10,
-    totalCapacityKwh:     Math.round(totalCapacityKwh * 10) / 10,
-    dischargeRateKw:      Math.round(dischargeRateKw * 10) / 10,
+    totalRemainingKwh:      Math.round(totalRemainingKwh * 10) / 10,
+    totalCapacityKwh:       Math.round(totalCapacityKwh * 10) / 10,
+    dischargeRateKw:        Math.round(dischargeRateKw * 10) / 10,
+    sunriseDischargeRateKw: Math.round(sunriseDischargeRateKw * 10) / 10,
     estimatedHours,
     estimatedHoursToFull,
     estimatedSocAtSunrise,

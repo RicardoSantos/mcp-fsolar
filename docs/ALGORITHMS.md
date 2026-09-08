@@ -97,10 +97,13 @@ Returns `AutonomyResult` with fleet totals and a per-battery breakdown.
 | `estimatedHours` | `number` | ✓ | Hours until fleet SOC hits `minSocPct` at the instantaneous discharge rate |
 | `estimatedHoursSmoothed` | `number` | ✓ | Same as `estimatedHours`, but at `sunriseDischargeRateKw` — use this when presenting an absolute wall-clock prediction (e.g. "5% at 03:40"); a single instantaneous reading extrapolated with no horizon cap is even more spike-prone than the sunrise projection |
 | `estimatedHoursToFull` | `number \| null` | when charging | Hours until fully charged; `null` if not charging |
-| `estimatedSocAtSunrise` | `number \| null` | when `sunriseAt` given | Estimated fleet SOC % at next sunrise |
+| `estimatedSocAtSunrise` | `number \| null` | when `sunriseAt` given | Estimated fleet SOC % at next sunrise, at `sunriseDischargeRateKw` |
+| `estimatedSocAtSunriseInstant` | `number \| null` | when `sunriseAt` given | Same projection, at the instantaneous `dischargeRateKw` — "if right-now's draw held for the whole night" |
 | `hoursToSunrise` | `number \| null` | when `sunriseAt` given | Hours between now and `sunriseAt` |
 | `estimatedDischargeKwh` | `number \| null` | when `sunriseAt` given | Energy discharged between now and sunrise (`sunriseDischargeRateKw × hoursToSunrise`) |
-| `estimatedRemainingKwh` | `number \| null` | when `sunriseAt` given | Estimated total remaining kWh at sunrise (floored at `minSocPct` reserve) |
+| `estimatedDischargeKwhInstant` | `number \| null` | when `sunriseAt` given | Same, at `dischargeRateKw` |
+| `estimatedRemainingKwh` | `number \| null` | when `sunriseAt` given | Estimated total remaining kWh at sunrise (floored at `minSocPct` reserve), at `sunriseDischargeRateKw` |
+| `estimatedRemainingKwhInstant` | `number \| null` | when `sunriseAt` given | Same, at `dischargeRateKw` |
 | `perBattery` | `AutonomyPerBattery[]` | ✓ | Per-battery breakdown (see below) |
 
 ### Discharge rate
@@ -195,15 +198,25 @@ totalCapacityKwh      = packCapacityKwh
                         ?? sum(bat.ratedEnergyKwh ?? bat.remainingKwh / (bat.soc / 100))
 
 hoursToSunrise        = max(0, (sunriseAt − now) / 3_600_000)
-discharged            = sunriseDischargeRateKw × hoursToSunrise
 minKwh                = totalCapacityKwh × (minSocPct / 100)
+
+discharged            = sunriseDischargeRateKw × hoursToSunrise
 estimatedKwh          = max(minKwh, totalRemainingKwh − discharged)
 estimatedSocAtSunrise = clamp(round(estimatedKwh / totalCapacityKwh × 100), minSocPct, 100)
 estimatedDischargeKwh = round(discharged, 1)
 estimatedRemainingKwh = round(estimatedKwh, 1)
+
+// Same projection again, at the raw instantaneous rate instead of the smoothed one —
+// shown alongside estimatedSocAtSunrise so the divergence is visible rather than hidden
+// inside a kW figure the caller has to multiply out by hand.
+dischargedInstant             = dischargeRateKw × hoursToSunrise
+estimatedKwhInstant           = max(minKwh, totalRemainingKwh − dischargedInstant)
+estimatedSocAtSunriseInstant  = clamp(round(estimatedKwhInstant / totalCapacityKwh × 100), minSocPct, 100)
+estimatedDischargeKwhInstant  = round(dischargedInstant, 1)
+estimatedRemainingKwhInstant  = round(estimatedKwhInstant, 1)
 ```
 
-All five fields (`hoursToSunrise`, `estimatedSocAtSunrise`, `estimatedDischargeKwh`, `estimatedRemainingKwh`, and `totalCapacityKwh`) are included in the `AutonomyResult` return value so callers never need to re-derive them.
+All fields above (`hoursToSunrise`, `estimatedSocAtSunrise(Instant)`, `estimatedDischargeKwh(Instant)`, `estimatedRemainingKwh(Instant)`, and `totalCapacityKwh`) are included in the `AutonomyResult` return value so callers never need to re-derive them.
 
 **Assumptions:** Constant discharge rate until sunrise. Does not model temperature effects, BMS cut-off curves, or PV/grid interaction.
 

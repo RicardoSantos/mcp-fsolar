@@ -368,6 +368,28 @@ test("computeAutonomy — estimatedSocAtSunrise is 100 when sunrise is in the pa
   assert.equal(r.estimatedSocAtSunrise, 100);
 });
 
+test("computeAutonomy — estimatedSocAtSunriseInstant null when sunriseAt not provided", () => {
+  assert.equal(computeAutonomy([makeBat()], []).estimatedSocAtSunriseInstant, null);
+});
+
+test("computeAutonomy — estimatedSocAtSunriseInstant diverges from estimatedSocAtSunrise on a spike", () => {
+  // Calm history at -1000W, current instant reading spikes to -6000W.
+  const calmSnaps: BatterySnapshot[] = Array.from({ length: 5 }, (_, i) =>
+    makeSnap([makeBatEntry({ power: -1000 })], 50 - i * 10));
+  const bat     = makeBat({ power: -6000, remainingKwh: 16, ratedEnergyKwh: 16, soc: 100 });
+  const sunrise = new Date(Date.now() + 8 * 3_600_000).toISOString();
+  const r       = computeAutonomy([bat], calmSnaps, { sunriseAt: sunrise, minSocPct: 5 });
+  assert.ok(r.estimatedSocAtSunriseInstant != null && r.estimatedSocAtSunrise != null);
+  assert.ok(r.estimatedSocAtSunriseInstant < r.estimatedSocAtSunrise);
+});
+
+test("computeAutonomy — estimatedSocAtSunriseInstant equals estimatedSocAtSunrise when no history diverges", () => {
+  const bat     = makeBat({ power: -1000, remainingKwh: 5, ratedEnergyKwh: 10, soc: 50 });
+  const sunrise = new Date(Date.now() + 8 * 3_600_000).toISOString();
+  const r       = computeAutonomy([bat], [], { sunriseAt: sunrise, minSocPct: 5 });
+  assert.equal(r.estimatedSocAtSunriseInstant, r.estimatedSocAtSunrise);
+});
+
 // ── computeAutonomy — aggregate fields ───────────────────────────────────────
 
 test("computeAutonomy — totalRemainingKwh sums across all batteries", () => {

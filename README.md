@@ -416,11 +416,14 @@ interface AutonomyResult {
   estimatedHours:         number       // hours until fleet hits minSocPct, at the instantaneous dischargeRateKw
   estimatedHoursSmoothed: number       // same, but at sunriseDischargeRateKw — use this when presenting an absolute wall-clock prediction (e.g. "5% at 03:40"), which needs the same spike-resistance as the sunrise projection
   estimatedHoursToFull:   number | null  // hours until fully charged; null if not charging
-  estimatedSocAtSunrise:  number | null  // % SOC at next sunrise; null if sunriseAt not given
-  hoursToSunrise:         number | null
-  estimatedDischargeKwh:  number | null  // kWh discharged between now and sunrise, at sunriseDischargeRateKw
-  estimatedRemainingKwh:  number | null  // kWh remaining at sunrise
-  perBattery:             AutonomyPerBattery[]
+  estimatedSocAtSunrise:        number | null  // % SOC at next sunrise, at sunriseDischargeRateKw; null if sunriseAt not given
+  estimatedSocAtSunriseInstant: number | null  // same projection, at the instantaneous dischargeRateKw — "if right-now's draw held all night"
+  hoursToSunrise:               number | null
+  estimatedDischargeKwh:        number | null  // kWh discharged between now and sunrise, at sunriseDischargeRateKw
+  estimatedDischargeKwhInstant: number | null  // same, at dischargeRateKw
+  estimatedRemainingKwh:        number | null  // kWh remaining at sunrise, at sunriseDischargeRateKw
+  estimatedRemainingKwhInstant: number | null  // same, at dischargeRateKw
+  perBattery:                   AutonomyPerBattery[]
 }
 
 interface AutonomyPerBattery {

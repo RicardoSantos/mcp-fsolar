@@ -51,11 +51,14 @@ export interface AutonomyResult {
   estimatedHours:         number;
   estimatedHoursSmoothed: number;
   estimatedHoursToFull:   number | null;
-  estimatedSocAtSunrise:  number | null;
-  hoursToSunrise:         number | null;
-  estimatedDischargeKwh:  number | null;
-  estimatedRemainingKwh:  number | null;
-  perBattery:             AutonomyPerBattery[];
+  estimatedSocAtSunrise:         number | null;
+  estimatedSocAtSunriseInstant:  number | null;
+  hoursToSunrise:                number | null;
+  estimatedDischargeKwh:         number | null;
+  estimatedDischargeKwhInstant:  number | null;
+  estimatedRemainingKwh:         number | null;
+  estimatedRemainingKwhInstant:  number | null;
+  perBattery:                    AutonomyPerBattery[];
 }
 
 export interface AutonomyOptions {
@@ -234,17 +237,29 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
     };
   });
 
-  let estimatedSocAtSunrise: number | null  = null;
-  let hoursToSunrise:        number | null  = null;
-  let estimatedDischargeKwh: number | null  = null;
-  let estimatedRemainingKwh: number | null  = null;
+  let estimatedSocAtSunrise:        number | null = null;
+  let estimatedSocAtSunriseInstant: number | null = null;
+  let hoursToSunrise:               number | null = null;
+  let estimatedDischargeKwh:        number | null = null;
+  let estimatedDischargeKwhInstant: number | null = null;
+  let estimatedRemainingKwh:        number | null = null;
+  let estimatedRemainingKwhInstant: number | null = null;
   if (sunriseAt != null && totalCapacityKwh > 0) {
     hoursToSunrise = Math.max(0, (new Date(sunriseAt as string).getTime() - Date.now()) / 3_600_000);
     const minKwh   = totalCapacityKwh * (minSocPct / 100);
+
     const remaining = Math.max(minKwh, totalRemainingKwh - sunriseDischargeRateKw * hoursToSunrise);
     estimatedSocAtSunrise = clamp(minSocPct, Math.round((remaining / totalCapacityKwh) * 100), 100);
     estimatedDischargeKwh = Math.round(sunriseDischargeRateKw * hoursToSunrise * 10) / 10;
     estimatedRemainingKwh = Math.round(remaining * 10) / 10;
+
+    // Same projection, but at the raw instantaneous rate — "if right-now's draw held for
+    // the whole night." Shown alongside the smoothed estimate so the divergence between
+    // the two is visible, not hidden inside a kW number the caller has to multiply by hand.
+    const remainingInstant = Math.max(minKwh, totalRemainingKwh - dischargeRateKw * hoursToSunrise);
+    estimatedSocAtSunriseInstant = clamp(minSocPct, Math.round((remainingInstant / totalCapacityKwh) * 100), 100);
+    estimatedDischargeKwhInstant = Math.round(dischargeRateKw * hoursToSunrise * 10) / 10;
+    estimatedRemainingKwhInstant = Math.round(remainingInstant * 10) / 10;
   }
 
   return {
@@ -256,9 +271,12 @@ export function computeAutonomy(batteries: Battery[], snapshots: BatterySnapshot
     estimatedHoursSmoothed,
     estimatedHoursToFull,
     estimatedSocAtSunrise,
+    estimatedSocAtSunriseInstant,
     hoursToSunrise:       hoursToSunrise != null ? Math.round(hoursToSunrise * 10) / 10 : null,
     estimatedDischargeKwh,
+    estimatedDischargeKwhInstant,
     estimatedRemainingKwh,
+    estimatedRemainingKwhInstant,
     perBattery,
   };
 }

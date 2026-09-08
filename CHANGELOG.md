@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.4] — 2026-09-08
+
+### Added
+- `AutonomyResult.estimatedSocAtSunriseInstant`, `estimatedDischargeKwhInstant`, `estimatedRemainingKwhInstant` — the same sunrise projection as `estimatedSocAtSunrise`/`estimatedDischargeKwh`/`estimatedRemainingKwh`, computed at the instantaneous `dischargeRateKw` instead of the smoothed `sunriseDischargeRateKw`. Lets a caller show both the "current draw held all night" and "smoothed recent average" projections side by side, instead of only the smoothed one with the raw rate buried in a kW figure the caller had to multiply out by hand.
+
 ## [1.2.3] — 2026-09-08
 
 ### Added

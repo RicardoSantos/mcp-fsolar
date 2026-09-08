@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-09-08
+
+### Added
+- `AutonomyResult.sunriseDischargeRateKw` — the rate used specifically to extrapolate SOC-at-sunrise (`estimatedSocAtSunrise`, `estimatedDischargeKwh`, `estimatedRemainingKwh`). Averaged over a trailing window of up to `DISCHARGE_RATE_SNAP_WINDOW` (6) samples (the live reading plus recent snapshots) rather than the single instantaneous power reading. `dischargeRateKw` itself is unchanged — still the honest instant "right now" rate, used for `estimatedHours` and `perBattery`.
+
+### Fixed
+- The sunrise projection previously multiplied the instantaneous power reading by every remaining hour to sunrise. A brief high-power spike (kettle, oven) got extrapolated across the whole night, which for a many-hour horizon almost always exceeded usable capacity and pinned the estimate at the reserve floor (`minSocPct`) even though the real overnight average was well below the spike and the battery never actually got close to reserve. `sunriseDischargeRateKw` now smooths this while still always including the live reading as one sample, so a genuinely new sustained load is still reflected immediately.
+
 ## [1.2.1] — 2026-09-02
 
 ### Fixed

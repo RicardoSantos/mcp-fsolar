@@ -171,3 +171,14 @@ throw new AppError("not found", 404);
 | `FELICITY_LOW_SOC_PCT` | `20` | SOC % threshold for the `low_soc` webhook event |
 | `FELICITY_TARIFF_KWH` | — | Electricity tariff in currency/kWh used by `get_cost_savings` tool |
 | `SNAPSHOT_DIR` | `os.tmpdir()` | Directory for snapshot + hook persistence |
+
+## Release / CI troubleshooting
+
+**`Publish to npm` fails with `404 Not Found - PUT .../fsolar-mcp` even though build/test/pack all succeed (seen on the `v1.3.0` tag, 2026-09-18).** The job gets all the way through `npm pack` (tarball built, provenance statement signed) and only fails at the final registry `PUT` — a token problem, not a code or workflow problem. npm has been restricting tokens that bypass 2FA from doing direct publishes (the job log prints a notice about this right before the failure: "npm tokens that bypass 2FA are being restricted for account changes and direct publishing"). The old `NPM_TOKEN` repo secret needs rotating:
+
+1. npmjs.com → log in as the account that owns `fsolar-mcp` → profile icon → **Access Tokens** → **Generate New Token** → **Granular Access Token**
+2. Scope: **Read and write**, restricted to just the `fsolar-mcp` package (not all packages), with an expiration
+3. `gh secret set NPM_TOKEN --repo RicardoSantos/mcp-fsolar` (run interactively so the token isn't pasted into a chat/log)
+4. Re-run the already-failed job — `gh run rerun <run-id> --failed` — no need to re-tag; the tag push already fired the workflow correctly, only the registry auth failed
+
+Since the workflow already sets `permissions.id-token: write` and publishes `--provenance`, this repo is a good candidate to eventually migrate off a long-lived `NPM_TOKEN` entirely onto [npm Trusted Publishers](https://docs.npmjs.com/trusted-publishers) (GitHub Actions OIDC) — removes the token (and this whole class of expiry/2FA-policy failure) rather than just rotating it. Not done yet; flagged here for next time this comes up.

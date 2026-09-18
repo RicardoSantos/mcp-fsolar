@@ -5,6 +5,7 @@ import https  from "https";
 import http   from "http";
 import os     from "os";
 import path   from "path";
+import { EventEmitter } from "events";
 import { constants } from "node:http2";
 import {
   HEALTH_CELL_DELTA_WARN,
@@ -113,6 +114,17 @@ export interface SnapshotPayload {
   health:    Record<string, BatteryHealth>;
   ts:        string;
 }
+
+/**
+ * Same-process alternative to HTTP webhooks. `HookStore.fire()` emits every
+ * cooldown-gated `HookEvent` here in addition to (not instead of) delivering
+ * it to any registered webhook URLs — embedded consumers can subscribe
+ * directly (`alertEmitter.on(HookEvent.LOW_SOC, ...)`) without running a
+ * webhook receiver or a standalone server. Mirrors `snapshotEmitter` in
+ * `state.ts`, which covers raw per-tick telemetry instead of cooldown-gated
+ * alerts.
+ */
+export const alertEmitter: EventEmitter = new EventEmitter();
 
 export class HookStore {
   private _prevBatInfo:   Map<string, string> | null    = null;
@@ -326,7 +338,10 @@ export class HookStore {
     this._prevBatInfo    = currentBatInfo;
 
     const hooks = this._hooks;
-    if (!hooks.length) return;
+    // Skip all computation when nothing consumes it — a registered webhook
+    // or an in-process alertEmitter listener. Preserves the exact no-op
+    // behaviour embedded consumers already see when neither is in use.
+    if (!hooks.length && !alertEmitter.eventNames().length) return;
 
     const cooldowns = this._cooldowns;
     const now       = Date.now();
@@ -416,9 +431,10 @@ export class HookStore {
     if (changed) this._saveCooldowns();
 
     for (const ev of events) {
+      const evPayload = { sn: ev.sn, alias: ev.alias, value: ev.value, threshold: ev.threshold };
+      alertEmitter.emit(ev.event, { ...evPayload, ts: new Date().toISOString() });
       for (const hook of hooks) {
         if (hook.events.length && !hook.events.includes(ev.event)) continue;
-        const evPayload = { sn: ev.sn, alias: ev.alias, value: ev.value, threshold: ev.threshold };
         this._deliver(hook, ev.event, evPayload).then((ok) => {
           if (!ok) this._queueRetry(hook.id, ev.event, evPayload);
         }).catch(() => {});
@@ -432,6 +448,7 @@ export class HookStore {
         count:    allAlerts.length,
         newCount: newAlerts.length,
       };
+      alertEmitter.emit(HookEvent.ALERT, { ...alertPayload, ts: new Date().toISOString() });
       for (const hook of hooks) {
         if (hook.events.length && !hook.events.includes(HookEvent.ALERT)) continue;
         this._deliver(hook, HookEvent.ALERT, alertPayload).then((ok) => {

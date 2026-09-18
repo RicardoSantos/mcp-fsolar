@@ -347,13 +347,33 @@ Content-Type: application/json
 
 ### Bridging hooks to other notification channels
 
-The package fires generic HTTP webhooks. To route alerts into a Web Push / email / SMS system, register a hook pointing to a receiver endpoint in the consuming application:
+**Same process as the poller (e.g. embedded in a Next.js app):** subscribe to
+`alertEmitter` (`src/hooks.ts`) directly — no webhook registration needed, and it
+works where a webhook can't: `HookStore`'s SSRF guard rejects any webhook URL
+targeting `localhost`/private addresses, which is exactly where a same-process
+consumer's own receiver would live.
+
+```js
+import { alertEmitter, HookEvent } from 'fsolar-mcp'
+
+alertEmitter.on(HookEvent.LOW_SOC, (payload) => myNotifier.push(payload))
+```
+
+Every cooldown-gated event `fire()` computes is emitted here, with the identical
+payload it would send over HTTP — see [Event-driven: webhooks & emitter → alertEmitter](../README.md#alertemitter--cooldown-gated-alert-events-same-process)
+in the README.
+
+**Separate process or host:** register an HTTP webhook pointing to a receiver
+endpoint in the consuming application:
 
 ```
 POST /hooks  →  { "url": "https://your-app/api/battery-hook-receiver" }
 ```
 
-The receiver maps the `event` field to the appropriate notification call. This eliminates the need for polling-based health-check routes in the consuming app.
+The receiver maps the `event` field to the appropriate notification call. Either
+way, no polling-based health-check route is needed in the consuming app — both
+delivery mechanisms fire from the same cooldown-gated evaluation, so alerts
+never need to be recomputed downstream.
 
 ---
 

@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- `alertEmitter` (exported from `src/hooks.ts` and the package root) — every cooldown-gated `HookEvent` that `HookStore.fire()` computes is now also emitted on a same-process `EventEmitter`, in addition to (not instead of) delivery to any registered HTTP webhooks. Lets an embedded consumer (e.g. a Next.js app that imports `startPoller` directly) subscribe to `low_soc`, `cell_delta_crit`, the `alert` fleet catch-all, etc. without running a webhook receiver — previously the only way to react to these events in-process was to register a webhook pointing back at your own app, which `HookStore`'s SSRF guard rejects for any `localhost`/private-address target. Covers every `HookEvent` except `snapshot`, which same-process consumers already get from `snapshotEmitter`. Fully backward compatible: `HookStore.fire()` remains a no-op, with zero behaviour change, when neither a webhook nor an `alertEmitter` listener is registered.
+
 ## [1.2.4] — 2026-09-08
 
 ### Added

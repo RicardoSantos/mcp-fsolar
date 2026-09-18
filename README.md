@@ -717,7 +717,39 @@ startPoller(client, {
 })
 ```
 
+### alertEmitter — cooldown-gated alert events (same-process)
+
+`snapshotEmitter` above gives you the raw per-tick reading. `alertEmitter` gives you the
+*evaluated* events from the table below — the same cooldown/dedup logic that drives HTTP
+webhook delivery, without registering a webhook or running a server:
+
+```js
+import { startPoller, alertEmitter } from 'fsolar-mcp'
+import { HookEvent } from 'fsolar-mcp'
+
+alertEmitter.on(HookEvent.LOW_SOC, ({ sn, alias, value, threshold, ts }) => {
+  myNotifier.push(`${alias} at ${value}% (≤ ${threshold}%)`)
+})
+
+alertEmitter.on(HookEvent.ALERT, ({ alerts, newAlerts, count, newCount, ts }) => {
+  // fleet-wide catch-all — same payload shape as the `alert` webhook event
+})
+
+startPoller(client)
+```
+
+Every row in the [Hook events](#hook-events) table except `snapshot` is emitted here —
+`snapshot` (the periodic full-fleet payload) is only delivered via HTTP webhooks
+(`fireSnapshot`) and `snapshotEmitter`, since same-process consumers already get that data
+from `snapshotEmitter` on every poll tick. `alertEmitter` fires **in addition to**, not
+instead of, delivery to any registered webhook URLs — use one, the other, or both. If
+neither a webhook nor an `alertEmitter` listener is registered, `HookStore.fire()` is a
+no-op, same as before this existed.
+
 ### Hook events
+
+Delivered as HTTP webhook POSTs (§ [HTTP webhooks](#http-webhooks)) and, for every event
+except `snapshot`, emitted in-process via `alertEmitter` above.
 
 | Event | Trigger | Payload extras | Cooldown |
 |---|---|---|---|

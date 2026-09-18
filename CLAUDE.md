@@ -41,7 +41,7 @@ src/
   errors.ts        AppError class (Error subclass with statusCode)
   logger.ts        createLogger() — injectable structured JSON logger (writes to stderr)
   middleware.ts    makeGetAllowedOrigin, makeCheckAuth, makeRateLimit, readBody factories
-  hooks.ts         Webhook store, SSRF validation, event delivery, per-event cooldowns, retry
+  hooks.ts         Webhook store, SSRF validation, event delivery, per-event cooldowns, retry, in-process alertEmitter
   compute.ts       Health metric derivation (computeHealth, computeAutonomy)
   analyze.ts       computeAlerts, computeEnergyHistory, computeCellStats, computePowerStats
   enums.ts         HealthStatus, HookEvent, TrendDirection, ChargingState

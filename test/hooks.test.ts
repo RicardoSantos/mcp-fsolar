@@ -5,7 +5,7 @@ import path from "path";
 
 process.env.SNAPSHOT_DIR = path.join(os.tmpdir(), "fsolar-hooks-test-" + process.pid);
 
-import { HookStore, type HookDelivery } from "../src/hooks";
+import { HookStore, alertEmitter, type HookDelivery } from "../src/hooks";
 import { HookEvent, HealthStatus, ChargingState } from "../src/enums";
 import { HEALTH_TEMP_WARN } from "../src/compute";
 import { constants } from "node:http2";
@@ -479,6 +479,75 @@ test("fire — hook subscribed only to ALERT does not receive per-battery events
   await hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
   assert.ok(!sent.some((e) => e.event === HookEvent.BMS_WARNINGS), "BMS_WARNINGS should not reach ALERT-only hook");
   assert.ok(sent.some((e) => e.event === HookEvent.ALERT), "ALERT should still be delivered");
+});
+
+// ── HookStore.fire — alertEmitter (in-process, no webhooks needed) ───────────
+
+test("fire — alertEmitter emits LOW_SOC with zero webhooks registered", async () => {
+  const hs = makeStore(); // no hooks added
+  await new Promise<void>((resolve) => {
+    const handler = (payload: Record<string, unknown>) => {
+      alertEmitter.off(HookEvent.LOW_SOC, handler);
+      assert.equal(payload["sn"], "SN1");
+      assert.equal(payload["value"], 10);
+      assert.equal(typeof payload["ts"], "string");
+      resolve();
+    };
+    alertEmitter.on(HookEvent.LOW_SOC, handler);
+    void hs.fire([makeBat({ soc: 10 })], {});
+  });
+});
+
+test("fire — alertEmitter and webhook delivery both receive the same event", async () => {
+  const hs   = makeStore();
+  hs.add({ url: "https://example.com/hook" });
+  const sent = captureDelivers(hs);
+  await new Promise<void>((resolve) => {
+    const handler = (payload: Record<string, unknown>) => {
+      alertEmitter.off(HookEvent.LOW_SOC, handler);
+      assert.equal(payload["sn"], "SN1");
+      resolve();
+    };
+    alertEmitter.on(HookEvent.LOW_SOC, handler);
+    void hs.fire([makeBat({ soc: 10 })], {});
+  });
+  assert.ok(sent.some((e) => e.event === HookEvent.LOW_SOC), "webhook delivery must still receive it");
+});
+
+test("fire — alertEmitter respects the same cooldown as webhook delivery", async () => {
+  const hs = makeStore();
+  let emitCount = 0;
+  const handler = () => { emitCount++; };
+  alertEmitter.on(HookEvent.LOW_SOC, handler);
+  try {
+    await hs.fire([makeBat({ soc: 10 })], {});
+    await hs.fire([makeBat({ soc: 10 })], {});
+    assert.equal(emitCount, 1, "second fire within cooldown must not re-emit");
+  } finally {
+    alertEmitter.off(HookEvent.LOW_SOC, handler);
+  }
+});
+
+test("fire — alertEmitter emits ALERT fleet event with the same payload shape as webhooks", async () => {
+  const hs = makeStore();
+  await new Promise<void>((resolve) => {
+    const handler = (payload: Record<string, unknown>) => {
+      alertEmitter.off(HookEvent.ALERT, handler);
+      assert.ok(Array.isArray(payload["alerts"]), "payload.alerts should be an array");
+      assert.ok((payload["count"] as number) > 0, "payload.count should be > 0");
+      resolve();
+    };
+    alertEmitter.on(HookEvent.ALERT, handler);
+    void hs.fire([makeFullBat({ warningCount: 1 })], makeHealth("SN1"));
+  });
+});
+
+test("fire — still a true no-op when neither webhooks nor alertEmitter listeners exist", async () => {
+  const hs = makeStore();
+  let cooldownSaves = 0;
+  priv(hs)._saveCooldowns = () => { cooldownSaves++; };
+  await hs.fire([makeBat({ soc: 5 })], {});
+  assert.equal(cooldownSaves, 0, "no consumer registered → fire() must skip all bookkeeping");
 });
 
 // ── HMAC signing ──────────────────────────────────────────────────────────────

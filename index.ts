@@ -21,8 +21,8 @@ export { SnapshotStore, BatterySnapshotStore, DailySnapshotStore, DailyEnergySto
          type BatterySnapshot, type BalanceTrend, type DailyEnergy,
          type SnapshotQuery } from "./src/store";
 
-// Webhooks
-export { HookStore, hookStore, HOOK_COOLDOWNS_H,
+// Webhooks & in-process alert events
+export { HookStore, hookStore, HOOK_COOLDOWNS_H, alertEmitter,
          type HookSubscription, type HookDelivery, type SnapshotPayload } from "./src/hooks";
 
 // Compute

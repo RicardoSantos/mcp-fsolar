@@ -97,9 +97,18 @@ test("16 cells produce 4 modules of 4", () => {
   assert.equal(b.modules[3].index, 4);
 });
 
-test("non-16 cell count produces no modules", () => {
+test("8 cells produce 2 modules of 4 (non-16-cell pack, not gated on CELL_COUNT)", () => {
   const b = buildBattery(DEVICE, { ...SNAP, bmsVoltageList: Array(8).fill("3200") });
-  assert.equal(b.modules.length, 0);
+  assert.equal(b.modules.length, 2);
+  assert.equal(b.modules[0].index, 1);
+  assert.equal(b.modules[0].cells.length, 4);
+  assert.equal(b.modules[1].index, 2);
+});
+
+test("cell count not evenly divisible by 4 still produces modules, last one partial", () => {
+  const b = buildBattery(DEVICE, { ...SNAP, bmsVoltageList: Array(15).fill("3200") });
+  assert.equal(b.modules.length, 4);
+  assert.equal(b.modules[3].cells.length, 3, "last module holds the remainder");
 });
 
 test("sentinel temperature (>= 200) filtered out", () => {

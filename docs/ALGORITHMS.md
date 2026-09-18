@@ -581,9 +581,9 @@ All non-obvious numeric literals in the package are named constants. This table 
 | `BMS_CHARGING_REG` | `1` | register | `bmsChargingState` value → charging |
 | `BMS_DISCHARGING_REG` | `2` | register | `bmsChargingState` value → discharging |
 | `BMS_BALANCING_BIT` | `64` | bitmask | Bit 6 of `bmsState` — BMS is actively balancing cells |
-| `CELL_COUNT` | `16` | cells | Total cells per pack (4 modules × 4 cells) |
-| `MODULE_COUNT` | `4` | — | Modules per pack |
-| `CELLS_PER_MODULE` | `4` | cells | Cells per module |
+| `CELL_COUNT` | `16` | cells | Documents the common pack size (4 modules × 4 cells); **not enforced** — `buildBattery()` derives `Battery.modules` from the real reported cell count, so other pack sizes still get a correct breakdown |
+| `MODULE_COUNT` | `4` | — | Documents the common pack's module count; not enforced, see above |
+| `CELLS_PER_MODULE` | `4` | cells | The one real hardware invariant — every BP-series module board is wired for 4 cells regardless of pack size |
 | `DEFAULT_CAPACITY_AH` | `314` | Ah | Fallback pack capacity when the API omits `battCapacity` |
 | `TEMP_SENTINEL_MAX_C` | `200` | °C | Felicity outputs 3 276.7 for missing temp sensors; readings ≥ 200 °C are discarded |
 

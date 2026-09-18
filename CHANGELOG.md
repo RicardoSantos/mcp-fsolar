@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-18
+
+### Fixed
+- `buildBattery()` — `Battery.modules` was only ever populated for packs with exactly `CELL_COUNT` (16) cells; any other real Felicity pack size silently got `modules: []` even though `cellVoltages`/`cellVoltageMin`/`cellVoltageMax`/`cellDelta` were already correctly derived from the actual reported cell count. Now uses the existing count-agnostic `groupCellsByModule()` helper (already relied on by `get_module_health` and the per-cell `module` label in `computeCellStats`) instead of a duplicated, 16-cell-only inline implementation. `CELLS_PER_MODULE` (4) is a genuine BP-series hardware constant and still drives the grouping; `CELL_COUNT`/`MODULE_COUNT` remain exported for backward compatibility but no longer gate anything. No behaviour change for 16-cell packs.
+
 ## [1.3.0] — 2026-09-18
 
 ### Added

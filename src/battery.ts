@@ -6,6 +6,13 @@ export const BATTERY_DEVICE_TYPE = "BP";
 export const BMS_CHARGING_REG    = 1;
 export const BMS_DISCHARGING_REG = 2;
 export const BMS_BALANCING_BIT   = 64;
+// CELLS_PER_MODULE is the one true hardware invariant — every BP-series module
+// board is wired for 4 cells, regardless of pack size. CELL_COUNT/MODULE_COUNT
+// describe the most common pack (16 cells / 4 modules) but are NOT enforced —
+// buildBattery() derives the real module count from however many cells the API
+// actually reports (cells.length), so a pack with a different cell count still
+// gets a correct modules[] breakdown instead of an empty one. Kept exported for
+// backward compatibility with existing consumers, not used internally anymore.
 export const CELL_COUNT          = 16;
 export const MODULE_COUNT        = 4;
 export const CELLS_PER_MODULE    = 4;
@@ -117,13 +124,14 @@ export function buildBattery(device: Record<string, unknown>, snap: Record<strin
     cellDelta,
     maxCellNum,
     minCellNum,
-    modules: cells.length === CELL_COUNT
-      ? Array.from({ length: MODULE_COUNT }, (_, m) => {
-          const mc = cells.slice(m * CELLS_PER_MODULE, m * CELLS_PER_MODULE + CELLS_PER_MODULE);
-          return { index: m + 1, cells: mc, temp: cellTemps[m] ?? null,
-                   min: Math.min(...mc), max: Math.max(...mc), delta: Math.max(...mc) - Math.min(...mc) };
-        })
-      : [],
+    modules: [...groupCellsByModule(cells).entries()].map(([mod, mc]) => ({
+      index: mod,
+      cells: mc,
+      temp:  cellTemps[mod - 1] ?? null,
+      min:   Math.min(...mc),
+      max:   Math.max(...mc),
+      delta: Math.max(...mc) - Math.min(...mc),
+    })),
     chargeVoltLimit:      parseFloat(String(snap.BMSLCVolt ?? "0"))             || null,
     dischargeVoltLimit:   parseFloat(String(snap.BMSLDVolt ?? "0"))             || null,
     chargeCurrLimit:      parseFloat(String(snap.BMSLCCurr ?? "0"))             || null,

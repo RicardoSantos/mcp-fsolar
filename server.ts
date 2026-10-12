@@ -27,7 +27,7 @@ import { makeGetAllowedOrigin, makeCheckAuth,
          sendJson, sendError }                   from "./src/middleware";
 import { AppError }                              from "./src/errors";
 import { LFP_NOMINAL_CYCLES }                   from "./src/constants";
-import { findBattery, filterBatteries }          from "./src/helpers";
+import { findBattery, filterBatteries, intEnv, floatEnv } from "./src/helpers";
 import type { BatterySnapshotStore, DailyEnergyStore } from "./src/store";
 import type { HookStore }                              from "./src/hooks";
 
@@ -487,7 +487,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
     "Estimated monetary savings from discharged energy × electricity tariff. Pass tariffKwh or set FELICITY_TARIFF_KWH env var.",
     { tariffKwh: z.number().optional().describe("Electricity tariff in currency-per-kWh (e.g. 0.25 for €0.25/kWh)") },
     async ({ tariffKwh }) => {
-      const rate    = tariffKwh ?? (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
+      const rate    = tariffKwh ?? floatEnv("FELICITY_TARIFF_KWH", null);
       const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
       if (!history.length) return textContent("Not enough snapshots for cost savings calculation (need at least 2 readings).");
       const totalDischarged = history.reduce((s, d) => s + d.kwhDischarged, 0);
@@ -746,7 +746,7 @@ export function createServer(client: FelicityClient, opts: ServerOptions = {}): 
         const tariffParam = url.searchParams.get("tariff");
         const rate = tariffParam != null
           ? parseFloat(tariffParam)
-          : (process.env.FELICITY_TARIFF_KWH ? parseFloat(process.env.FELICITY_TARIFF_KWH) : null);
+          : floatEnv("FELICITY_TARIFF_KWH", null);
         const history = mergeEnergyHistory(serverDailyEnergyStore.get(), computeEnergyHistory(serverSnapshotStore.getSnapshots()));
         const totalDischarged = Math.round(history.reduce((s, d) => s + d.kwhDischarged, 0) * 100) / 100;
         const totalCharged    = Math.round(history.reduce((s, d) => s + d.kwhCharged,    0) * 100) / 100;
@@ -845,17 +845,17 @@ export async function main(): Promise<void> {
     _defaultLogger.error("unhandled rejection", { reason: String(reason) });
   });
 
-  if (!process.env.FELICITY_USER || !process.env.FELICITY_PASS) {
+  if (!process.env.FELICITY_USER?.trim() || !process.env.FELICITY_PASS?.trim()) {
     _defaultLogger.error("missing credentials — set FELICITY_USER and FELICITY_PASS in .env or environment");
     process.exit(1);
   }
 
-  const POLL_MS = parseInt(process.env.FELICITY_POLL_MS ?? "30000", 10);
-  const PORT    = parseInt(process.env.FELICITY_PORT    ?? "3010",  10);
+  const POLL_MS = intEnv("FELICITY_POLL_MS", 30000);
+  const PORT    = intEnv("FELICITY_PORT",    3010);
 
   const serverOpts: ServerOptions = {
     apiKey:     process.env.FELICITY_API_KEY     || null,
-    rateLimit:  parseInt(process.env.FELICITY_RATE_LIMIT ?? "60", 10),
+    rateLimit:  intEnv("FELICITY_RATE_LIMIT", 60),
     corsOrigin: process.env.FELICITY_CORS_ORIGIN ?? null,
     trustProxy: process.env.FELICITY_TRUST_PROXY === "1",
     port:       PORT,

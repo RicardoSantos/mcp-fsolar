@@ -1,7 +1,7 @@
 import fs   from "fs";
 import os   from "os";
 import path from "path";
-import { clamp, pickSnapshotFields, type SnapshotEntry } from "./helpers";
+import { clamp, intEnv, pickSnapshotFields, type SnapshotEntry } from "./helpers";
 import { TrendDirection }                                 from "./enums";
 import { logger }                                         from "./logger";
 import { TREND_STABLE_MV,
@@ -35,9 +35,9 @@ export interface BalanceTrend {
 
 export function resolveSnapshotConfig(): { enabled: boolean; ms: number; maxIntra: number; ddays: number } {
   const enabled = (process.env.FELICITY_SNAPSHOT_ENABLED ?? "true") === "true";
-  const ms    = clamp(SNAPSHOT_MS_MIN,   parseInt(process.env.FELICITY_SNAPSHOT_MS   ?? String(SNAPSHOT_MS_DEFAULT),   10), SNAPSHOT_MS_MAX);
-  const days  = clamp(SNAPSHOT_DAYS_MIN, parseInt(process.env.FELICITY_SNAPSHOT_DAYS ?? String(SNAPSHOT_DAYS_DEFAULT), 10), SNAPSHOT_DAYS_MAX);
-  const ddays = clamp(DAILY_DAYS_MIN,    parseInt(process.env.FELICITY_DAILY_DAYS    ?? String(DAILY_DAYS_DEFAULT),    10), DAILY_DAYS_MAX);
+  const ms    = clamp(SNAPSHOT_MS_MIN,   intEnv("FELICITY_SNAPSHOT_MS",   SNAPSHOT_MS_DEFAULT),   SNAPSHOT_MS_MAX);
+  const days  = clamp(SNAPSHOT_DAYS_MIN, intEnv("FELICITY_SNAPSHOT_DAYS", SNAPSHOT_DAYS_DEFAULT), SNAPSHOT_DAYS_MAX);
+  const ddays = clamp(DAILY_DAYS_MIN,    intEnv("FELICITY_DAILY_DAYS",    DAILY_DAYS_DEFAULT),    DAILY_DAYS_MAX);
   const maxIntra = Math.ceil((days * 24 * 60 * 60 * 1000) / ms);
   return { enabled, ms, maxIntra, ddays };
 }

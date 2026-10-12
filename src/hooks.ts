@@ -25,7 +25,7 @@ import type { BatteryHealth } from "./compute";
 import { computeAlerts } from "./analyze";
 import { ChargingState, HealthStatus, HookEvent } from "./enums";
 import { logger }                                  from "./logger";
-import { sleep }                                   from "./helpers";
+import { sleep, intEnv }                           from "./helpers";
 import { AppError }                                from "./errors";
 import type { Battery }                            from "./battery";
 
@@ -55,7 +55,7 @@ function _isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-const LOW_SOC_PCT = parseInt(process.env.FELICITY_LOW_SOC_PCT ?? "20", 10);
+const LOW_SOC_PCT = intEnv("FELICITY_LOW_SOC_PCT", 20);
 
 export const HOOK_COOLDOWNS_H: Record<string, number> = {
   [HookEvent.CELL_DELTA_CRIT]:     1,

@@ -9,6 +9,7 @@ import { computeHealth, computeAutonomy }              from "./compute";
 import { computeEnergyHistory }                        from "./analyze";
 import { POLL_BACKOFF_MAX_MS }                         from "./constants";
 import { logger }                                      from "./logger";
+import { intEnv }                                      from "./helpers";
 import type { FelicityClient }                         from "./client";
 import type { BatterySnapshotStore, DailyEnergyStore, DailyEnergy } from "./store";
 import type { HookStore }                              from "./hooks";
@@ -16,8 +17,8 @@ import type { Battery }                                from "./battery";
 import type { BatterySnapshot, BalanceTrend }          from "./store";
 import type { BatteryHealth, AutonomyResult }          from "./compute";
 
-const POLL_MS      = parseInt(process.env.FELICITY_POLL_MS      ?? "30000",  10);
-const TELEMETRY_MS = parseInt(process.env.FELICITY_TELEMETRY_MS ?? "300000", 10);
+const POLL_MS      = intEnv("FELICITY_POLL_MS",      30000);
+const TELEMETRY_MS = intEnv("FELICITY_TELEMETRY_MS", 300000);
 
 export const snapshotEmitter: EventEmitter = new EventEmitter();
 

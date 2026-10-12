@@ -16,6 +16,7 @@ import http                from "http";
 import { constants }       from "node:http2";
 import { resolveSnapshotConfig } from "../src/store";
 import { makeCheckAuth, makeRateLimit, makeGetAllowedOrigin } from "../src/middleware";
+import { SNAPSHOT_MS_DEFAULT, DAILY_DAYS_DEFAULT } from "../src/constants";
 
 const { HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_TOO_MANY_REQUESTS } = constants;
 
@@ -162,10 +163,23 @@ describe("resolveSnapshotConfig — env overrides", () => {
     });
   });
 
-  test("non-numeric FELICITY_SNAPSHOT_MS produces NaN (clamp does not handle NaN)", () => {
+  test("non-numeric FELICITY_SNAPSHOT_MS falls back to the default instead of NaN", () => {
     withEnv({ FELICITY_SNAPSHOT_MS: "abc" }, () => {
-      // parseInt("abc") = NaN; Math.max/min with NaN propagates NaN — known limitation
-      assert.ok(Number.isNaN(resolveSnapshotConfig().ms));
+      assert.equal(resolveSnapshotConfig().ms, SNAPSHOT_MS_DEFAULT);
+    });
+  });
+
+  test("empty-string FELICITY_SNAPSHOT_MS falls back to the default instead of NaN", () => {
+    // Mirrors a Docker entrypoint exporting an unresolved option as "" (e.g. `export VAR="$(get_opt key)"`
+    // with no matching key) — "" must not be treated as a set value.
+    withEnv({ FELICITY_SNAPSHOT_MS: "" }, () => {
+      assert.equal(resolveSnapshotConfig().ms, SNAPSHOT_MS_DEFAULT);
+    });
+  });
+
+  test("whitespace-only FELICITY_DAILY_DAYS falls back to the default instead of NaN", () => {
+    withEnv({ FELICITY_DAILY_DAYS: "   " }, () => {
+      assert.equal(resolveSnapshotConfig().ddays, DAILY_DAYS_DEFAULT);
     });
   });
 });

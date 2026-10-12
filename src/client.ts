@@ -63,7 +63,7 @@ export class FelicityClient {
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   private async _ensureToken(): Promise<string> {
-    if (!this._user || !this._pass) throw new Error("FelicityClient: user and pass are required");
+    if (!this._user?.trim() || !this._pass?.trim()) throw new Error("FelicityClient: user and pass are required");
     if (this._token && Date.now() < this._tokenExpiry) return this._token;
     const encPass = crypto
       .publicEncrypt({ key: RSA_PUB, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(this._pass))

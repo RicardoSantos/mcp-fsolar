@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { intEnv } from "./helpers";
 
 // Felicity cloud API RSA public key used to encrypt the login password before transmission.
 export const RSA_PUB = Buffer.from(
@@ -8,7 +9,7 @@ export const RSA_PUB = Buffer.from(
 
 export const API_HOST           = Buffer.from("c2hpbmUtYXBpLmZlbGljaXR5c29sYXIuY29t", "base64").toString();
 export const REQUEST_TIMEOUT_MS = 10_000;
-export const TOKEN_TTL_MS       = parseInt(process.env.FELICITY_TOKEN_TTL_H ?? "6", 10) * 3_600_000;
+export const TOKEN_TTL_MS       = intEnv("FELICITY_TOKEN_TTL_H", 6) * 3_600_000;
 
 export async function felicityRequest(
   method:  string,

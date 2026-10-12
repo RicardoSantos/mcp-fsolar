@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nullableInt, nullableFloat, clamp, sleep, pickSnapshotFields, pickNextSunrise } from "../src/helpers";
+import { nullableInt, nullableFloat, clamp, sleep, pickSnapshotFields, pickNextSunrise, intEnv, floatEnv } from "../src/helpers";
+
+function withEnv(name: string, value: string | undefined, fn: () => void): void {
+  const old = process.env[name];
+  if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  try { fn(); } finally {
+    if (old === undefined) delete process.env[name]; else process.env[name] = old;
+  }
+}
 
 // ── nullableInt ───────────────────────────────────────────────────────────────
 
@@ -17,6 +25,28 @@ test("nullableFloat — null for null",      () => assert.equal(nullableFloat(nu
 test("nullableFloat — null for undefined", () => assert.equal(nullableFloat(undefined),  null));
 test("nullableFloat — parses string",      () => assert.equal(nullableFloat("3.14"),     3.14));
 test("nullableFloat — parses integer string as float", () => assert.equal(nullableFloat("5"), 5));
+
+// ── intEnv ────────────────────────────────────────────────────────────────────
+// Guards against every "unset" shape a Docker/addon entrypoint can produce —
+// missing var, `-e VAR=` with no value, or an unresolved option exported as "".
+// Without this, parseInt(process.env.X ?? "default") only catches undefined,
+// letting "" or "abc" through as NaN (e.g. into setInterval, which then fires
+// almost immediately instead of at the intended cadence).
+
+test("intEnv — missing var returns default",        () => withEnv("FSOLAR_TEST_INT", undefined, () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 30000)));
+test("intEnv — empty string returns default",       () => withEnv("FSOLAR_TEST_INT", "",        () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 30000)));
+test("intEnv — whitespace-only returns default",    () => withEnv("FSOLAR_TEST_INT", "   ",     () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 30000)));
+test("intEnv — non-numeric returns default",        () => withEnv("FSOLAR_TEST_INT", "abc",     () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 30000)));
+test("intEnv — valid numeric string parses",        () => withEnv("FSOLAR_TEST_INT", "60000",   () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 60000)));
+test("intEnv — zero is respected, not default",     () => withEnv("FSOLAR_TEST_INT", "0",       () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 0)));
+test("intEnv — surrounding whitespace is trimmed",  () => withEnv("FSOLAR_TEST_INT", "  42  ",  () => assert.equal(intEnv("FSOLAR_TEST_INT", 30000), 42)));
+
+// ── floatEnv ──────────────────────────────────────────────────────────────────
+
+test("floatEnv — missing var returns default",      () => withEnv("FSOLAR_TEST_FLOAT", undefined, () => assert.equal(floatEnv("FSOLAR_TEST_FLOAT", null), null)));
+test("floatEnv — empty string returns default",     () => withEnv("FSOLAR_TEST_FLOAT", "",        () => assert.equal(floatEnv("FSOLAR_TEST_FLOAT", null), null)));
+test("floatEnv — non-numeric returns default",      () => withEnv("FSOLAR_TEST_FLOAT", "abc",     () => assert.equal(floatEnv("FSOLAR_TEST_FLOAT", null), null)));
+test("floatEnv — valid numeric string parses",      () => withEnv("FSOLAR_TEST_FLOAT", "0.25",    () => assert.equal(floatEnv("FSOLAR_TEST_FLOAT", null), 0.25)));
 
 // ── clamp ─────────────────────────────────────────────────────────────────────
 

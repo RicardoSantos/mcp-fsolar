@@ -46,6 +46,32 @@ export function nullableFloat(v: string | number | null | undefined): number | n
   return v != null ? parseFloat(String(v)) : null;
 }
 
+/**
+ * Reads an integer env var, falling back to `defaultValue` for every "unset" shape —
+ * missing, empty/whitespace-only (e.g. a Docker `-e VAR=` with no value, or an entrypoint
+ * script exporting an unresolved option as ""), or non-numeric. `??` alone only catches
+ * `undefined`/`null`, not `""` or `"abc"`, which otherwise propagate as NaN into timers
+ * (`setInterval(fn, NaN)` fires almost immediately) or clamp() (NaN poisons Math.max/min).
+ */
+export function intEnv(name: string, defaultValue: number): number {
+  const raw = process.env[name];
+  if (raw == null) return defaultValue;
+  const trimmed = raw.trim();
+  if (trimmed === "") return defaultValue;
+  const n = parseInt(trimmed, 10);
+  return Number.isNaN(n) ? defaultValue : n;
+}
+
+/** Same "unset" protection as {@link intEnv}, for float env vars (e.g. a tariff rate). */
+export function floatEnv(name: string, defaultValue: number | null): number | null {
+  const raw = process.env[name];
+  if (raw == null) return defaultValue;
+  const trimmed = raw.trim();
+  if (trimmed === "") return defaultValue;
+  const n = parseFloat(trimmed);
+  return Number.isNaN(n) ? defaultValue : n;
+}
+
 export function clamp(min: number, val: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }

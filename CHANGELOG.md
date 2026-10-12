@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-10-12
+
+No code changes. Republish of 1.3.2 — the npm publish step for that tag failed on the `NPM_TOKEN` 2FA-bypass restriction (see 1.3.0 notes); this bump retriggers CI with a rotated token.
+
 ## [1.3.2] — 2026-10-12
 
 ### Fixed

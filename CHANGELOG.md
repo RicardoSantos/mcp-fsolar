@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-10-12
+
+### Fixed
+- `addon/mcp-fsolar/run.sh` (the HA Supervisor add-on wrapper used in the Docker image) unconditionally exported every `FELICITY_*` var from `/data/options.json`, even when that file doesn't exist (plain `docker run`/compose, no Supervisor) — the option lookup then silently returns `""`, clobbering any env vars already passed via `-e`. It now only overrides a var when the corresponding option actually resolves to a non-empty value, otherwise leaving whatever is already in the environment untouched.
+- Numeric env vars (`FELICITY_POLL_MS`, `FELICITY_TELEMETRY_MS`, `FELICITY_PORT`, `FELICITY_RATE_LIMIT`, `FELICITY_TOKEN_TTL_H`, `FELICITY_LOW_SOC_PCT`, `FELICITY_SNAPSHOT_MS`/`_DAYS`, `FELICITY_DAILY_DAYS`, `FELICITY_TARIFF_KWH`) were parsed with `parseInt(process.env.X ?? "default", 10)`, which only falls back on `undefined`/`null` — not on `""` or a non-numeric value, both of which parse to `NaN`. A clobbered `FELICITY_POLL_MS` (see above) therefore became `NaN`, and `setInterval(tick, NaN)` polls the Felicity API almost continuously instead of every 30s. Added `intEnv()`/`floatEnv()` helpers that treat every "unset" shape — missing, empty, whitespace-only, non-numeric — as unset and fall back to the default, and wired them into every numeric env var above.
+- Hardened the missing-credentials guard (`main()` and `FelicityClient._ensureToken()`) to treat whitespace-only `FELICITY_USER`/`FELICITY_PASS` as missing too, so a genuinely empty environment stops the process before any network call.
+
 ## [1.3.1] — 2026-09-18
 
 ### Fixed

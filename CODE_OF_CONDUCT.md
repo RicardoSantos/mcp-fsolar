@@ -59,8 +59,9 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-rdgbsantos@gmail.com.
+reported to the community leaders responsible for enforcement by opening a
+confidential issue via GitHub or contacting the maintainers listed in
+[SECURITY.md](SECURITY.md).
 
 All complaints will be reviewed and investigated promptly and fairly.
 
